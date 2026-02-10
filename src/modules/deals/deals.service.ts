@@ -25,6 +25,68 @@ export class DealsService {
     };
   }
 
+    // AI-powered deal insights
+    async getDealInsights() {
+      // Fetch deals
+      const deals = await this.prisma.deal.findMany({
+        select: {
+          id: true,
+          name: true,
+          amount: true,
+          stageId: true,
+          createdAt: true,
+          updatedAt: true,
+          ownerUserId: true,
+        },
+      });
+
+      // Fetch all stages for mapping
+      const stages = await this.prisma.dealStage.findMany({ select: { id: true, name: true, order: true, isWon: true, isLost: true } });
+      const stageMap = Object.fromEntries(stages.map(s => [s.id, s.name]));
+      const stageOrderMap = Object.fromEntries(stages.map(s => [s.id, s.order]));
+      const stageTypeMap = Object.fromEntries(stages.map(s => [s.id, { isWon: s.isWon, isLost: s.isLost }]));
+
+      const now = new Date();
+      const insights = deals.map(deal => {
+        const daysSinceUpdate = Math.floor((now.getTime() - new Date(deal.updatedAt).getTime()) / (1000 * 60 * 60 * 24));
+        let attention = daysSinceUpdate > 30;
+        // Enhanced close probability: later stage = higher probability
+        let closeProbability = 0.1;
+        if (stageTypeMap[deal.stageId]?.isWon) closeProbability = 1;
+        else if (stageTypeMap[deal.stageId]?.isLost) closeProbability = 0;
+        else if (stageOrderMap[deal.stageId]) closeProbability = Math.min(0.1 + 0.2 * stageOrderMap[deal.stageId], 0.9);
+
+        // Enhanced AI recommendation logic
+        let recommendation = '';
+        if (attention) {
+          recommendation = 'Follow up soon';
+        } else if (closeProbability === 1) {
+          recommendation = 'Deal won! Celebrate and record outcome.';
+        } else if (closeProbability === 0) {
+          recommendation = 'Deal lost. Review and learn.';
+        } else if (closeProbability > 0.7) {
+          recommendation = 'High chance to close. Push for final steps.';
+        } else if (closeProbability > 0.4) {
+          recommendation = 'Deal progressing. Keep nurturing.';
+        } else {
+          recommendation = 'Early stage. Qualify and engage.';
+        }
+
+        return {
+          id: deal.id,
+          name: deal.name,
+          amount: deal.amount,
+          stageId: deal.stageId,
+          stageName: stageMap[deal.stageId] || deal.stageId,
+          daysSinceUpdate,
+          attention,
+          closeProbability,
+          recommendation,
+        };
+      });
+      return { insights };
+    }
+
   // Notes
   async addNote(dealId: string, content: string, user: any) {
     return this.prisma.note.create({

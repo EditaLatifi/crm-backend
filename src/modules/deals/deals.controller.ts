@@ -17,6 +17,12 @@ export class DealsController {
     return this.dealsService.getAnalytics();
   }
 
+    // AI-powered deal insights
+    @Get('/insights')
+    async getDealInsights() {
+      return this.dealsService.getDealInsights();
+    }
+
   // Notes
   @Post(':id/notes')
   async addNote(@Param('id') id: string, @Body() dto: CreateNoteDto, @Request() req: any) {
