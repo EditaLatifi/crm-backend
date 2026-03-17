@@ -1,7 +1,9 @@
-import { Controller, Post, Body, Request, UseGuards } from '@nestjs/common';
+import { Controller, Post, Body, Request, UseGuards, UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { LocalAuthGuard } from './local-auth.guard';
+import { JwtAuthGuard } from './jwt-auth.guard';
+import { SkipThrottle } from '@nestjs/throttler';
 
+@SkipThrottle()
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -11,14 +13,17 @@ export class AuthController {
     const { email, password } = body;
     const user = await this.authService.validateUser(email, password);
     if (!user) {
-      return { error: 'Invalid credentials' };
+      throw new UnauthorizedException('Ungültige E-Mail-Adresse oder Passwort');
     }
-    // Get access token
-    const loginResult = await this.authService.login(user);
-    return {
-      ...loginResult, // includes access_token
-      user,
-    };
+    return this.authService.login(user);
   }
-  // Removed refresh endpoint
+
+  // Refresh: requires a valid (non-expired) JWT, returns a fresh one
+  @UseGuards(JwtAuthGuard)
+  @Post('refresh')
+  async refresh(@Request() req: any) {
+    const user = await this.authService.getUserById(req.user.userId);
+    if (!user) throw new UnauthorizedException();
+    return this.authService.login(user);
+  }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, UseGuards, Request, Query } from '@nestjs/common';
 import { ActivityService } from './activity.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 
@@ -6,8 +6,9 @@ import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 export class ActivityController {
   constructor(private readonly activityService: ActivityService) {}
 
+  @UseGuards(JwtAuthGuard)
   @Get()
-  async findAll(@Request() req: any): Promise<any[]> {
-    return this.activityService.findAll(req.user);
+  async findAll(@Request() req: any, @Query('limit') limit?: string): Promise<any[]> {
+    return this.activityService.findAll(req.user, limit ? parseInt(limit) : 50);
   }
 }

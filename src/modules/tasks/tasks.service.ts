@@ -13,7 +13,6 @@ export class TasksService {
           orderBy: { createdAt: 'desc' },
         });
       } catch (e) {
-        console.error('getHistory error:', e);
         throw new Error('Failed to fetch task history');
       }
     }
@@ -26,41 +25,30 @@ export class TasksService {
           include: { user: true },
         });
       } catch (e) {
-        console.error('getTimeEntries error:', e);
         throw new Error('Failed to fetch time entries');
       }
     }
   constructor(private prisma: PrismaService) {}
   async updateTask(id: string, body: any, user: any) {
-    // Optionally: check permissions here
-    const { title, description, dueDate, estimate } = body;
-    if (
-      title === undefined &&
-      description === undefined &&
-      dueDate === undefined &&
-      estimate === undefined
-    ) {
-      throw new Error('Nothing to update');
-    }
+    const { title, description, dueDate, estimate, status, priority, assignedToUserId, accountId, contactId, dealId } = body;
     const data: any = {};
     if (title !== undefined) data.title = title;
     if (description !== undefined) data.description = description;
     if (dueDate !== undefined) data.dueDate = dueDate ? new Date(dueDate) : null;
     if (estimate !== undefined) data.estimate = estimate !== '' ? Number(estimate) : null;
-    return this.prisma.task.update({
-      where: { id },
-      data,
-    });
+    if (status !== undefined) data.status = status;
+    if (priority !== undefined) data.priority = priority;
+    if (assignedToUserId !== undefined) data.assignedToUserId = assignedToUserId || null;
+    if (accountId !== undefined) data.accountId = accountId || null;
+    if (contactId !== undefined) data.contactId = contactId || null;
+    if (dealId !== undefined) data.dealId = dealId || null;
+    if (Object.keys(data).length === 0) return this.prisma.task.findUnique({ where: { id } });
+    return this.prisma.task.update({ where: { id }, data });
   }
   
   async createTask(body: any, user: any) {
-    // Fallback to anonymous user if not authenticated
-    let createdByUserId = user && user.userId ? user.userId : null;
-    if (!createdByUserId) {
-      const anonUser = await this.prisma.user.findFirst({ where: { email: 'anonymous@crm.local' } });
-      if (anonUser) createdByUserId = anonUser.id;
-      else throw new Error('No user context and no anonymous user found');
-    }
+    if (!user?.userId) throw new ForbiddenException('Authentication required');
+    const createdByUserId = user.userId;
     const {
       title,
       description,
@@ -113,28 +101,16 @@ export class TasksService {
         orderBy: { createdAt: 'desc' },
       });
     } catch (e) {
-      console.error('getComments error:', e);
       throw new Error('Failed to fetch comments');
     }
   }
 
 async addComment(taskId: string, text: string, user: any) {
-  let authorId = user?.userId || user?.id || user?.sub;
-
-  if (!authorId) {
-    const anon = await this.prisma.user.findFirst({
-      where: { email: 'anonymous@crm.local' },
-    });
-    if (!anon) throw new Error('Anonymous user missing');
-    authorId = anon.id;
-  }
+  const authorId = user?.userId || user?.id || user?.sub;
+  if (!authorId) throw new Error('Authentication required to add a comment');
 
   return this.prisma.comment.create({
-    data: {
-      taskId,
-      text,
-      authorId,
-    },
+    data: { taskId, text, authorId },
     include: { author: true },
   });
 }
@@ -174,7 +150,6 @@ async addComment(taskId: string, text: string, user: any) {
       });
       return entry;
     } catch (e: any) {
-      console.error('addTimeEntry error:', e);
       throw new Error('Failed to add time entry: ' + (typeof e === 'object' && e !== null && 'message' in e ? (e as any).message : String(e)));
     }
   }
@@ -198,37 +173,18 @@ async addComment(taskId: string, text: string, user: any) {
       }
       return task;
     } catch (e) {
-      console.error('findByIdWithDetails error:', e);
       throw new Error('Failed to fetch task details');
     }
   }
 
-  async findAll(user: any): Promise<Task[]> {
-    if (!user || !user.role) {
-      return this.prisma.task.findMany();
-    }
-    if (user.role === Role.ADMIN) {
-      return this.prisma.task.findMany();
-    }
-    return this.prisma.task.findMany({
-      where: {
-        OR: [
-          { assignedToUserId: user.userId },
-          { createdByUserId: user.userId },
-        ],
-      },
-    });
+  async findAll(_user?: any): Promise<Task[]> {
+    // All authenticated users can see all tasks
+    return this.prisma.task.findMany();
   }
 
-  async findById(id: string, user: any): Promise<Task> {
+  async findById(id: string, _user?: any): Promise<Task> {
     const task = await this.prisma.task.findUnique({ where: { id } });
     if (!task) throw new NotFoundException('Task not found');
-    if (!user || !user.role) {
-      return task;
-    }
-    if (user.role !== Role.ADMIN && task.assignedToUserId !== user.userId && task.createdByUserId !== user.userId) {
-      throw new ForbiddenException('Access denied');
-    }
     return task;
   }
 }

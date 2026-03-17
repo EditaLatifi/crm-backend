@@ -10,14 +10,10 @@ export class UsersController {
     @UseGuards(JwtAuthGuard)
     async getAll(@Request() req: any): Promise<any[]> {
       // Only allow admin
-      console.log('[GET /users] req.user:', req.user);
       if (req.user?.role !== 'ADMIN') {
-        console.log('[GET /users] Not admin, returning []');
         return [];
       }
-      const users = await this.usersService.findAll();
-      console.log('[GET /users] Returning users:', users);
-      return users;
+      return this.usersService.findAll();
     }
 
     @Post()

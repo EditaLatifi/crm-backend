@@ -1,14 +1,24 @@
 
-import { Controller, Get, Post, Param, UseGuards, Request, Query } from '@nestjs/common';
+import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
 import { TimeTrackingService } from './time-tracking.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { PaginationDto } from '../../common/pagination/pagination.dto';
-import { forbidden } from '../../common/error/error.response';
-import { canAccessTimeEntry } from '../../common/policies/time-entry.policy';
 
 @Controller('time-entries')
 export class TimeTrackingController {
   constructor(private readonly timeTrackingService: TimeTrackingService) {}
+
+  @UseGuards(JwtAuthGuard)
+  @Post('/timer/start')
+  async startTimer(@Request() req: any, @Body() body: { accountId: string; taskId?: string; description?: string }) {
+    return this.timeTrackingService.startTimer(req.user, body.accountId, body.taskId, body.description);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('/timer/status')
+  async getTimerStatus(@Request() req: any) {
+    return this.timeTrackingService.getTimerStatus(req.user);
+  }
 
   @UseGuards(JwtAuthGuard)
   @Post('/timer/stop')
@@ -17,14 +27,20 @@ export class TimeTrackingController {
     return this.timeTrackingService.stopTimer(user);
   }
 
-  // Allow unauthenticated access for admin report
-  @Get()
-  async findAll(@Request() req: any, @Query() query: PaginationDto) {
-    // For unauthenticated, return all entries (for admin report)
-    const { page = 1, pageSize = 1000 } = query;
-    return this.timeTrackingService.findAll(null, page, pageSize);
+  @UseGuards(JwtAuthGuard)
+  @Delete('/timer')
+  async discardTimer(@Request() req: any) {
+    return this.timeTrackingService.discardTimer(req.user);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Get()
+  async findAll(@Request() req: any, @Query() query: PaginationDto) {
+    const { page = 1, pageSize = 1000 } = query;
+    return this.timeTrackingService.findAll(req.user, page, pageSize);
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get(':id')
   async findById(@Param('id') id: string, @Request() req: any): Promise<any> {
     return this.timeTrackingService.findById(id, req.user);

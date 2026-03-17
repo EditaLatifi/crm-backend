@@ -1,48 +1,38 @@
 import { Injectable } from '@nestjs/common';
 import { forbidden, notFound } from '../../common/error/error.response';
 import { PrismaService } from '../../common/prisma.service';
+import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { Account, Role } from '@prisma/client';
 
 @Injectable()
 export class AccountsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private activityLogger: ActivityLoggerService,
+  ) {}
 
   async findAll(user: any, page = 1, pageSize = 20): Promise<Account[]> {
-    // Enforce role-based access and pagination
-    if (!user || !user.role) {
-      return this.prisma.account.findMany({
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      });
-    }
-    if (user.role === Role.ADMIN) {
-      return this.prisma.account.findMany({
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-      });
-    }
+    // All authenticated users can see all accounts
     return this.prisma.account.findMany({
-      where: {
-        OR: [
-          { createdByUserId: user.userId },
-          { ownerUserId: user.userId },
-        ],
-      },
       skip: (page - 1) * pageSize,
       take: pageSize,
     });
   }
 
-  async findById(id: string, user: any): Promise<Account> {
-    const account = await this.prisma.account.findUnique({ where: { id } });
+  async findById(id: string, user: any): Promise<any> {
+    const account = await this.prisma.account.findUnique({
+      where: { id },
+      include: {
+        owner: { select: { id: true, name: true, email: true } },
+        contacts: { select: { id: true, name: true, email: true, phone: true, title: true } },
+        deals: {
+          select: { id: true, name: true, amount: true, currency: true, probability: true, stage: { select: { id: true, name: true, isWon: true, isLost: true } } },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+        },
+      },
+    });
     if (!account) throw notFound('Account not found');
-    // If user is undefined (no auth), allow access for testing
-    if (!user || !user.role) {
-      return account;
-    }
-    if (user.role !== Role.ADMIN && account.ownerUserId !== user.userId && account.createdByUserId !== user.userId) {
-      throw forbidden('Access denied');
-    }
     return account;
   }
   async create(body: any, user: any): Promise<Account> {
@@ -52,7 +42,7 @@ export class AccountsService {
     if (!ownerUserId || !createdByUserId) {
       throw new Error('ownerUserId and createdByUserId are required');
     }
-    return this.prisma.account.create({
+    const account = await this.prisma.account.create({
       data: {
         name: body.name,
         type: body.type,
@@ -64,6 +54,10 @@ export class AccountsService {
         notes: body.notes || null,
       },
     });
+    if (user?.userId) {
+      await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Account', entityId: account.id, action: 'CREATE', payloadJson: { name: account.name } });
+    }
+    return account;
   }
   async update(id: string, body: any, user: any): Promise<Account> {
     // Only allow update if user is owner or creator or admin
@@ -82,13 +76,7 @@ export class AccountsService {
       throw forbidden('Only admins can change account type/status');
     }
 
-    // Log type/status changes for investigation
-    if (body.type && body.type !== account.type) {
-      // You can replace this with a proper audit log table if needed
-      console.log(`Account type change: Account ${id} from ${account.type} to ${body.type} by user ${user?.userId || 'unknown'}`);
-    }
-
-    return this.prisma.account.update({
+    const updated = await this.prisma.account.update({
       where: { id },
       data: {
         name: body.name,
@@ -99,6 +87,10 @@ export class AccountsService {
         notes: body.notes,
       },
     });
+    if (user?.userId) {
+      await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Account', entityId: id, action: 'UPDATE', payloadJson: { name: updated.name } });
+    }
+    return updated;
   }
   async delete(id: string, user: any): Promise<{ deleted: boolean }> {
     const account = await this.prisma.account.findUnique({ where: { id } });
@@ -107,6 +99,9 @@ export class AccountsService {
       throw forbidden('Access denied');
     }
     await this.prisma.account.delete({ where: { id } });
+    if (user?.userId) {
+      await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Account', entityId: id, action: 'DELETE', payloadJson: { name: account.name } });
+    }
     return { deleted: true };
   }
 }

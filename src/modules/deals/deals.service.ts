@@ -2,10 +2,14 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { forbidden, notFound } from '../../common/error/error.response';
 import { Deal, Role } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
+import { ActivityLoggerService } from '../activity/activity-logger.service';
 
 @Injectable()
 export class DealsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private activityLogger: ActivityLoggerService,
+  ) {}
 
   // Analytics
   async getAnalytics() {
@@ -138,17 +142,13 @@ export class DealsService {
       return Math.round(amount * weight);
     }
   async create(body: any, user: any): Promise<Deal> {
-    // Fallback to a default user for local/dev/testing if user is missing
-    const fallbackUserId = 'ed5160e4-ce26-4517-9f6d-eb7128060a72'; // Use a real userId from your DB
-    const ownerUserId = body.ownerUserId ? body.ownerUserId : (user?.userId || fallbackUserId);
-    const createdByUserId = body.createdByUserId ? body.createdByUserId : (user?.userId || fallbackUserId);
-    if (!ownerUserId || !createdByUserId) {
-      throw new Error('ownerUserId and createdByUserId are required');
-    }
+    if (!user?.userId) throw new ForbiddenException('Authentication required');
+    const ownerUserId = body.ownerUserId || user.userId;
+    const createdByUserId = body.createdByUserId || user.userId;
     const amount = body.amount || 0;
     const stageId = body.stageId;
     const dealScore = await this.calculateDealScore(amount, stageId);
-    return this.prisma.deal.create({
+    const deal = await this.prisma.deal.create({
       data: {
         name: body.name,
         accountId: body.accountId,
@@ -163,20 +163,22 @@ export class DealsService {
         customFields: body.customFields || {},
       },
     });
+    await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: deal.id, action: 'CREATE', payloadJson: { name: deal.name } });
+    return deal;
   }
 
   async update(id: string, body: any, user: any): Promise<Deal> {
-    const fallbackUserId = 'ed5160e4-ce26-4517-9f6d-eb7128060a72'; // Use a real userId from your DB
+    if (!user?.userId) throw new ForbiddenException('Authentication required');
     const deal = await this.prisma.deal.findUnique({ where: { id } });
     if (!deal) throw new NotFoundException('Deal not found');
-    const effectiveUserId = user?.userId || fallbackUserId;
+    const effectiveUserId = user.userId;
     if (user && user.role !== Role.ADMIN && deal.ownerUserId !== effectiveUserId && deal.createdByUserId !== effectiveUserId) {
       throw new ForbiddenException('Access denied');
     }
     const amount = body.amount !== undefined ? body.amount : deal.amount;
     const stageId = body.stageId || deal.stageId;
     const dealScore = await this.calculateDealScore(amount, stageId);
-    return this.prisma.deal.update({
+    const updated = await this.prisma.deal.update({
       where: { id },
       data: {
         name: body.name,
@@ -186,9 +188,12 @@ export class DealsService {
         probability: body.probability,
         dealScore,
         expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : undefined,
+        followUpDate: body.followUpDate !== undefined ? (body.followUpDate ? new Date(body.followUpDate) : null) : undefined,
         customFields: body.customFields,
       },
     });
+    await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: id, action: 'UPDATE', payloadJson: { name: updated.name } });
+    return updated;
   }
 
   async delete(id: string, user: any): Promise<{ deleted: boolean }> {
@@ -198,6 +203,7 @@ export class DealsService {
       throw new ForbiddenException('Access denied');
     }
     await this.prisma.deal.delete({ where: { id } });
+    await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: id, action: 'DELETE', payloadJson: { name: deal.name } });
     return { deleted: true };
   }
 
@@ -218,15 +224,9 @@ export class DealsService {
     });
   }
 
-  async findById(id: string, user: any): Promise<Deal> {
+  async findById(id: string, _user?: any): Promise<Deal> {
     const deal = await this.prisma.deal.findUnique({ where: { id } });
     if (!deal) throw new NotFoundException('Deal not found');
-    if (!user || !user.role) {
-      return deal;
-    }
-    if (user.role !== Role.ADMIN && deal.ownerUserId !== user.userId && deal.createdByUserId !== user.userId) {
-      throw new ForbiddenException('Access denied');
-    }
     return deal;
   }
 

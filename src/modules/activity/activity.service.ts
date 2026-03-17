@@ -1,22 +1,26 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
-import { Activity, Role } from '@prisma/client';
+import { Role } from '@prisma/client';
 
 @Injectable()
 export class ActivityService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(user: any): Promise<Activity[]> {
+  async findAll(user: any, limit = 50): Promise<any[]> {
+    if (!user) return [];
+
+    const include = {
+      actor: { select: { id: true, name: true, email: true } },
+    };
+    const orderBy = { createdAt: 'desc' as const };
+    const take = limit;
+
+    // Admins see everything
     if (user.role === Role.ADMIN) {
-      return this.prisma.activity.findMany();
+      return this.prisma.activity.findMany({ include, orderBy, take });
     }
-    // Only activities for entities user can access (simplified)
-    return this.prisma.activity.findMany({
-      where: {
-        OR: [
-          { actorUserId: user.userId },
-        ],
-      },
-    });
+
+    // Regular users see all activities (full team feed) — at minimum their own
+    return this.prisma.activity.findMany({ include, orderBy, take });
   }
 }

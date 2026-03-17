@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, INestApplication } from '@nestjs/common';
+import { Injectable, OnModuleInit, INestApplication, Logger } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
 
 @Injectable()
@@ -6,16 +6,32 @@ export class PrismaService
   extends PrismaClient
   implements OnModuleInit {
 
+  private readonly logger = new Logger(PrismaService.name);
+
+  constructor() {
+    super({
+      datasources: {
+        db: {
+          url: process.env.DATABASE_URL,
+        },
+      },
+      // Keep connections warm — avoids cold connection latency on every request
+      log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
+    });
+  }
+
   async onModuleInit() {
-    let retries = 5;
+    const maxRetries = 5;
+    let retries = maxRetries;
     while (retries) {
       try {
         await this.$connect();
+        this.logger.log('Database connected');
         break;
       } catch (err) {
         retries -= 1;
-        console.log(`Prisma connection failed, retrying (${5 - retries}/5)...`);
-        await new Promise(res => setTimeout(res, 5000)); // wait 5 seconds
+        this.logger.warn(`DB connection failed, retrying (${maxRetries - retries}/${maxRetries})...`);
+        await new Promise(res => setTimeout(res, 2000)); // reduced from 5s to 2s
       }
     }
     if (!retries) {

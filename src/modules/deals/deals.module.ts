@@ -3,10 +3,11 @@ import { DealsService } from './deals.service';
 import { DealsController } from './deals.controller';
 import { CommonModule } from '../../common/common.module';
 import { ActivityModule } from '../activity/activity.module';
+import { ActivityLoggerService } from '../activity/activity-logger.service';
 
 @Module({
   imports: [CommonModule, ActivityModule],
-  providers: [DealsService],
+  providers: [DealsService, ActivityLoggerService],
   controllers: [DealsController],
   exports: [DealsService],
 })

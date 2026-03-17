@@ -1,5 +1,5 @@
 
-import { Controller, Get, Post, Patch, Delete, Param, Request, Body } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Request, Body, UseGuards } from '@nestjs/common';
 import { DealsService } from './deals.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { ChangeDealStageDto } from './dto/change-stage.dto';
@@ -9,6 +9,7 @@ import { CreateNoteDto } from './dto/create-note.dto';
 import { CreateAttachmentDto } from './dto/create-attachment.dto';
 
 @Controller('deals')
+@UseGuards(JwtAuthGuard)
 export class DealsController {
   constructor(private readonly dealsService: DealsService) {}
 
@@ -17,11 +18,10 @@ export class DealsController {
     return this.dealsService.getAnalytics();
   }
 
-    // AI-powered deal insights
-    @Get('/insights')
-    async getDealInsights() {
-      return this.dealsService.getDealInsights();
-    }
+  @Get('/insights')
+  async getDealInsights() {
+    return this.dealsService.getDealInsights();
+  }
 
   // Notes
   @Post(':id/notes')
@@ -54,7 +54,6 @@ export class DealsController {
     return this.dealsService.changeStage(id, dto, req.user);
   }
 
-  // No auth guard for local/dev: allow anyone to create a deal
   @Post()
   async create(@Body() dto: CreateDealDto, @Request() req: any) {
     return this.dealsService.create(dto, req.user);
@@ -82,7 +81,6 @@ export class DealsController {
       const result = await this.dealsService.findAll(req.user);
       return Array.isArray(result) ? result : [];
     } catch (e) {
-      console.error('DealsController.findAll error:', e);
       return [];
     }
   }

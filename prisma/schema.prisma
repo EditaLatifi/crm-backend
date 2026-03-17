@@ -1,3 +1,74 @@
+model VacationRequest {
+  id          String              @id @default(uuid())
+  userId      String
+  user        User                @relation("VacationRequests", fields: [userId], references: [id])
+  startDate   DateTime
+  endDate     DateTime
+  days        Int
+  type        VacationType        @default(VACATION)
+  status      VacationStatus      @default(PENDING)
+  note        String?
+  adminNote   String?
+  reviewedByUserId String?
+  reviewedBy  User?               @relation("VacationReviewer", fields: [reviewedByUserId], references: [id])
+  reviewedAt  DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+enum VacationType {
+  VACATION
+  SICK
+  UNPAID
+  OTHER
+}
+
+enum VacationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model EmailLog {
+  id          String   @id @default(uuid())
+  subject     String
+  body        String?
+  direction   EmailDirection @default(OUTBOUND)
+  accountId   String?
+  account     Account?  @relation(fields: [accountId], references: [id])
+  contactId   String?
+  contact     Contact?  @relation(fields: [contactId], references: [id])
+  loggedByUserId String
+  loggedBy    User      @relation("EmailLogCreator", fields: [loggedByUserId], references: [id])
+  loggedAt    DateTime  @default(now())
+}
+
+enum EmailDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model Appointment {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  startAt     DateTime
+  endAt       DateTime
+  accountId   String?
+  account     Account?  @relation(fields: [accountId], references: [id])
+  contactId   String?
+  contact     Contact?  @relation(fields: [contactId], references: [id])
+  dealId      String?
+  deal        Deal?     @relation(fields: [dealId], references: [id])
+  createdByUserId String
+  creator     User      @relation("AppointmentCreator", fields: [createdByUserId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([startAt])
+  @@index([createdByUserId])
+}
+
 model Attachment {
   id        String   @id @default(uuid())
   dealId    String
@@ -72,6 +143,10 @@ model User {
   taskHistory  TaskHistory[] @relation("UserTaskHistory")
   uploadedAttachments Attachment[] @relation("uploadedBy")
   createdNotes Note[] @relation("createdBy")
+  appointments     Appointment[]    @relation("AppointmentCreator")
+  emailLogs        EmailLog[]       @relation("EmailLogCreator")
+  vacationRequests VacationRequest[] @relation("VacationRequests")
+  reviewedVacations VacationRequest[] @relation("VacationReviewer")
 }
 
 enum Role {
@@ -96,9 +171,15 @@ model Account {
   tasks          Task[]
   timeEntries    TimeEntry[]
   runningTimers  RunningTimer[]
+  appointments   Appointment[]
+  emailLogs      EmailLog[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   dailyTimeByAccount DailyTimeByAccount[]
+
+  @@index([ownerUserId])
+  @@index([createdByUserId])
+  @@index([type])
 }
 
 enum AccountType {
@@ -108,16 +189,23 @@ enum AccountType {
 }
 
 model Contact {
-  id        String   @id @default(uuid())
-  accountId String?
-  account   Account?  @relation(fields: [accountId], references: [id])
-  name      String
-  email     String
-  phone     String?
-  title     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  tasks      Task[]
+  id           String    @id @default(uuid())
+  accountId    String?
+  account      Account?  @relation(fields: [accountId], references: [id])
+  name         String
+  email        String
+  phone        String?
+  title        String?
+  notes        String?
+  followUpDate DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  tasks        Task[]
+  appointments Appointment[]
+  emailLogs    EmailLog[]
+
+  @@index([accountId])
+  @@index([followUpDate])
 }
 
 model DealStage {
@@ -143,6 +231,7 @@ model Deal {
   probability    Int      // Probability to win (0-100)
   dealScore      Int      @default(0) // Calculated score for the deal
   expectedCloseDate DateTime
+  followUpDate   DateTime?
   customFields   Json? // Flexible custom fields per deal
   ownerUserId    String?
   owner          User?    @relation("DealOwner", fields: [ownerUserId], references: [id])
@@ -152,10 +241,16 @@ model Deal {
   attachments    Attachment[]
   notes          Note[]
   stageHistories DealStageHistory[]
+  appointments   Appointment[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
+
   @@index([stageId])
   @@index([accountId])
+  @@index([ownerUserId])
+  @@index([createdByUserId])
+  @@index([followUpDate])
+  @@index([expectedCloseDate])
 }
 
 model DealStageHistory {
@@ -196,7 +291,13 @@ model Task {
   dailyTimeByTask DailyTimeByTask[]
   comments        Comment[] @relation("TaskComments")
   history         TaskHistory[] @relation("TaskHistory")
-  estimate  Int?
+  estimate        Int?
+
+  @@index([status])
+  @@index([dueDate])
+  @@index([assignedToUserId])
+  @@index([createdByUserId])
+  @@index([accountId])
 }
 
 enum TaskStatus {

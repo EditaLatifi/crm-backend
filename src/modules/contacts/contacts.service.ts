@@ -25,37 +25,13 @@ export class ContactsService {
   }
 
   async findAll(user: any): Promise<Contact[]> {
-    if (!user || !user.role) {
-      return this.prisma.contact.findMany();
-    }
-    if (user.role === Role.ADMIN) {
-      return this.prisma.contact.findMany();
-    }
-    // Only contacts for accounts user can access
-    return this.prisma.contact.findMany({
-      where: {
-        OR: [
-          { account: { ownerUserId: user.userId } },
-          { account: { createdByUserId: user.userId } },
-        ],
-      },
-    });
+    // All authenticated users can see all contacts
+    return this.prisma.contact.findMany();
   }
 
   async findById(id: string, user: any): Promise<Contact> {
     const contact = await this.prisma.contact.findUnique({ where: { id }, include: { account: true } });
     if (!contact) throw new NotFoundException('Contact not found');
-    if (!user || !user.role) {
-      return contact;
-    }
-    if (
-      user.role !== Role.ADMIN &&
-      contact.account &&
-      contact.account.ownerUserId !== user.userId &&
-      contact.account.createdByUserId !== user.userId
-    ) {
-      throw new ForbiddenException('Access denied');
-    }
     return contact;
   }
 
@@ -75,6 +51,33 @@ export class ContactsService {
       }
     }
     return { deleted: result.count };
+  }
+
+  async updateContact(id: string, data: any, user: any): Promise<Contact> {
+    const contact = await this.prisma.contact.findUnique({ where: { id }, include: { account: true } });
+    if (!contact) throw new NotFoundException('Contact not found');
+    const updated = await this.prisma.contact.update({
+      where: { id },
+      data: {
+        ...(data.name !== undefined && { name: data.name }),
+        ...(data.email !== undefined && { email: data.email }),
+        ...(data.phone !== undefined && { phone: data.phone }),
+        ...(data.title !== undefined && { title: data.title }),
+        ...(data.accountId !== undefined && { accountId: data.accountId || null }),
+        ...(data.notes !== undefined && { notes: data.notes }),
+        ...(data.followUpDate !== undefined && { followUpDate: data.followUpDate ? new Date(data.followUpDate) : null }),
+      },
+    });
+    if (user?.userId) {
+      await this.activityLogger.logActivity({
+        actorUserId: user.userId,
+        entityType: 'Contact',
+        entityId: id,
+        action: 'UPDATE',
+        payloadJson: updated,
+      });
+    }
+    return updated;
   }
 
   async createContact(data: any, user: any): Promise<Contact> {

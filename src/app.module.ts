@@ -8,9 +8,18 @@ import { DealsModule } from './modules/deals/deals.module';
 import { AccountsModule } from './modules/accounts/accounts.module';
 import { ContactsModule } from './modules/contacts/contacts.module';
 import { ActivityModule } from './modules/activity/activity.module';
+import { SearchModule } from './modules/search/search.module';
+import { ReportsModule } from './modules/reports/reports.module';
+import { AppointmentsModule } from './modules/appointments/appointments.module';
+import { EmailLogsModule } from './modules/email-logs/email-logs.module';
+import { VacationModule } from './modules/vacation/vacation.module';
+import { HealthController } from './health.controller';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
 
 @Module({
   imports: [
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
     CommonModule,
     AuthModule,
     UsersModule,
@@ -20,7 +29,13 @@ import { ActivityModule } from './modules/activity/activity.module';
     ActivityModule,
     TasksModule,
     TimeTrackingModule,
-    // ...other modules
+    SearchModule,
+    ReportsModule,
+    AppointmentsModule,
+    EmailLogsModule,
+    VacationModule,
   ],
+  controllers: [HealthController],
+  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
 export class AppModule {}
