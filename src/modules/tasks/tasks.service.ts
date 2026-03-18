@@ -180,7 +180,7 @@ async addComment(taskId: string, text: string, user: any) {
   async findAll(_user?: any): Promise<any[]> {
     return this.prisma.task.findMany({
       include: {
-        assignedTo: { select: { id: true, name: true, email: true } },
+        assignee: { select: { id: true, name: true, email: true } },
       },
       orderBy: { createdAt: 'desc' },
     });
