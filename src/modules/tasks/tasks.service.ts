@@ -177,9 +177,13 @@ async addComment(taskId: string, text: string, user: any) {
     }
   }
 
-  async findAll(_user?: any): Promise<Task[]> {
-    // All authenticated users can see all tasks
-    return this.prisma.task.findMany();
+  async findAll(_user?: any): Promise<any[]> {
+    return this.prisma.task.findMany({
+      include: {
+        assignedTo: { select: { id: true, name: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
   async findById(id: string, _user?: any): Promise<Task> {
