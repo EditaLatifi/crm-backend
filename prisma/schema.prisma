@@ -147,6 +147,16 @@ model User {
   emailLogs        EmailLog[]       @relation("EmailLogCreator")
   vacationRequests VacationRequest[] @relation("VacationRequests")
   reviewedVacations VacationRequest[] @relation("VacationReviewer")
+  ownedProjects      Project[]         @relation("ProjectOwner")
+  createdProjects    Project[]         @relation("ProjectCreator")
+  projectMemberships ProjectMember[]   @relation("ProjectMembers")
+  completedPhases    ProjectPhase[]    @relation("PhaseCompletedBy")
+  createdPermits     Permit[]          @relation("PermitCreator")
+  permitHistories    PermitHistory[]   @relation("PermitHistoryActor")
+  createdVendors     Vendor[]          @relation("VendorCreator")
+  budgetItems        BudgetItem[]      @relation("BudgetItemCreator")
+  projectDocuments   ProjectDocument[] @relation("DocumentUploader")
+  projectShares      ProjectShare[]    @relation("ShareCreator")
 }
 
 enum Role {
@@ -173,6 +183,7 @@ model Account {
   runningTimers  RunningTimer[]
   appointments   Appointment[]
   emailLogs      EmailLog[]
+  projects       Project[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   dailyTimeByAccount DailyTimeByAccount[]
@@ -382,3 +393,277 @@ model DailyTimeByTask {
   @@id([date, taskId])
 }
 
+// ─── Project Phase Tracker ───────────────────────────────────────────────────
+
+model Project {
+  id              String        @id @default(uuid())
+  name            String
+  description     String?
+  status          ProjectStatus @default(ACTIVE)
+  type            ProjectType   @default(ARCHITECTURE)
+  address         String?
+  budget          Float?
+  currency        String        @default("CHF")
+  startDate       DateTime?
+  expectedEndDate DateTime?
+  actualEndDate   DateTime?
+  notes           String?
+  accountId       String?
+  account         Account?      @relation(fields: [accountId], references: [id])
+  ownerUserId     String
+  owner           User          @relation("ProjectOwner", fields: [ownerUserId], references: [id])
+  createdByUserId String
+  creator         User          @relation("ProjectCreator", fields: [createdByUserId], references: [id])
+  phases          ProjectPhase[]
+  members         ProjectMember[]
+  permits         Permit[]
+  budgetItems     BudgetItem[]
+  documents       ProjectDocument[]
+  vendors         ProjectVendor[]
+  shares          ProjectShare[]
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([ownerUserId])
+  @@index([accountId])
+  @@index([status])
+}
+
+model ProjectPhase {
+  id                String      @id @default(uuid())
+  projectId         String
+  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name              String
+  description       String?
+  order             Int
+  status            PhaseStatus @default(PENDING)
+  startDate         DateTime?
+  endDate           DateTime?
+  notes             String?
+  completedAt       DateTime?
+  completedByUserId String?
+  completedBy       User?       @relation("PhaseCompletedBy", fields: [completedByUserId], references: [id])
+  createdAt         DateTime    @default(now())
+  updatedAt         DateTime    @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model ProjectMember {
+  id        String   @id @default(uuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("ProjectMembers", fields: [userId], references: [id])
+  role      String?
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+  @@index([userId])
+}
+
+enum ProjectStatus {
+  ACTIVE
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectType {
+  ARCHITECTURE
+  INTERIOR_DESIGN
+  CONSTRUCTION_MANAGEMENT
+  VISUALIZATION
+  REAL_ESTATE
+  DIGITIZATION
+}
+
+enum PhaseStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  SKIPPED
+}
+
+// ─── Building Permit Pipeline ─────────────────────────────────────────────────
+
+model Permit {
+  id                  String         @id @default(uuid())
+  projectId           String
+  project             Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title               String
+  authority           String?
+  referenceNumber     String?
+  status              PermitStatus   @default(VORBEREITUNG)
+  submittedAt         DateTime?
+  expectedDecisionAt  DateTime?
+  decidedAt           DateTime?
+  notes               String?
+  documents           Json?
+  createdByUserId     String
+  creator             User           @relation("PermitCreator", fields: [createdByUserId], references: [id])
+  history             PermitHistory[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  @@index([projectId])
+  @@index([status])
+}
+
+model PermitHistory {
+  id          String       @id @default(uuid())
+  permitId    String
+  permit      Permit       @relation(fields: [permitId], references: [id], onDelete: Cascade)
+  fromStatus  PermitStatus?
+  toStatus    PermitStatus
+  notes       String?
+  actorUserId String
+  actor       User         @relation("PermitHistoryActor", fields: [actorUserId], references: [id])
+  createdAt   DateTime     @default(now())
+
+  @@index([permitId])
+}
+
+enum PermitStatus {
+  VORBEREITUNG
+  EINGEREICHT
+  IN_PRUEFUNG
+  NACHFORDERUNG
+  BEWILLIGT
+  ABGELEHNT
+  ZURUECKGEZOGEN
+}
+
+// ─── Vendor / Subcontractor Directory ────────────────────────────────────────
+
+model Vendor {
+  id              String          @id @default(uuid())
+  name            String
+  type            VendorType      @default(SONSTIGES)
+  contactName     String?
+  phone           String?
+  email           String?
+  address         String?
+  notes           String?
+  rating          Int?
+  createdByUserId String
+  creator         User            @relation("VendorCreator", fields: [createdByUserId], references: [id])
+  projects        ProjectVendor[]
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+
+  @@index([type])
+}
+
+model ProjectVendor {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  vendorId    String
+  vendor      Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  phase       String?
+  notes       String?
+  assignedAt  DateTime @default(now())
+
+  @@unique([projectId, vendorId])
+  @@index([vendorId])
+}
+
+enum VendorType {
+  ARCHITEKT
+  BAUINGENIEUR
+  ELEKTRIKER
+  SANITAER
+  HEIZUNG_LUEFTUNG
+  MALER
+  ZIMMERMANN
+  DACHDECKER
+  GARTENBAU
+  GENERALUNTERNEHMER
+  SONSTIGES
+}
+
+// ─── Budget & Cost Tracking ───────────────────────────────────────────────────
+
+model BudgetItem {
+  id              String         @id @default(uuid())
+  projectId       String
+  project         Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  category        BudgetCategory @default(SONSTIGES)
+  description     String
+  estimatedCost   Float          @default(0)
+  actualCost      Float?
+  phase           String?
+  notes           String?
+  createdByUserId String
+  creator         User           @relation("BudgetItemCreator", fields: [createdByUserId], references: [id])
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+
+  @@index([projectId])
+  @@index([category])
+}
+
+enum BudgetCategory {
+  HONORARE
+  ROHBAU
+  ELEKTRO
+  SANITAER
+  HEIZUNG
+  FASSADE
+  DACH
+  INNENAUSBAU
+  UMGEBUNG
+  RESERVE
+  SONSTIGES
+}
+
+// ─── Document Vault ───────────────────────────────────────────────────────────
+
+model ProjectDocument {
+  id              String           @id @default(uuid())
+  projectId       String
+  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  url             String
+  category        DocumentCategory @default(SONSTIGES)
+  version         String?
+  notes           String?
+  uploadedByUserId String
+  uploadedBy      User             @relation("DocumentUploader", fields: [uploadedByUserId], references: [id])
+  createdAt       DateTime         @default(now())
+
+  @@index([projectId])
+  @@index([category])
+}
+
+enum DocumentCategory {
+  GRUNDRISS
+  SCHNITT
+  ANSICHT
+  BAUGESUCH
+  VERTRAG
+  OFFERTE
+  RECHNUNG
+  PROTOKOLL
+  FOTO
+  SONSTIGES
+}
+
+// ─── Client Share Link ────────────────────────────────────────────────────────
+
+model ProjectShare {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  token           String    @unique @default(uuid())
+  label           String?
+  expiresAt       DateTime?
+  createdByUserId String
+  creator         User      @relation("ShareCreator", fields: [createdByUserId], references: [id])
+  createdAt       DateTime  @default(now())
+
+  @@index([projectId])
+  @@index([token])
+}

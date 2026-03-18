@@ -13,6 +13,12 @@ import { ReportsModule } from './modules/reports/reports.module';
 import { AppointmentsModule } from './modules/appointments/appointments.module';
 import { EmailLogsModule } from './modules/email-logs/email-logs.module';
 import { VacationModule } from './modules/vacation/vacation.module';
+import { ProjectsModule } from './modules/projects/projects.module';
+import { PermitsModule } from './modules/permits/permits.module';
+import { VendorsModule } from './modules/vendors/vendors.module';
+import { BudgetModule } from './modules/budget/budget.module';
+import { DocumentsModule } from './modules/documents/documents.module';
+import { ShareModule } from './modules/share/share.module';
 import { HealthController } from './health.controller';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
@@ -34,6 +40,12 @@ import { APP_GUARD } from '@nestjs/core';
     AppointmentsModule,
     EmailLogsModule,
     VacationModule,
+    ProjectsModule,
+    PermitsModule,
+    VendorsModule,
+    BudgetModule,
+    DocumentsModule,
+    ShareModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
