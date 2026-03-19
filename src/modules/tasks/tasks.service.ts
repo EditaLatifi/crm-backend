@@ -1,6 +1,7 @@
 
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Task, Role } from '@prisma/client';
 
 @Injectable()
@@ -28,7 +29,10 @@ export class TasksService {
         throw new Error('Failed to fetch time entries');
       }
     }
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
   async updateTask(id: string, body: any, user: any) {
     const { title, description, dueDate, estimate, status, priority, assignedToUserId, accountId, contactId, dealId } = body;
     const data: any = {};
@@ -43,7 +47,24 @@ export class TasksService {
     if (contactId !== undefined) data.contactId = contactId || null;
     if (dealId !== undefined) data.dealId = dealId || null;
     if (Object.keys(data).length === 0) return this.prisma.task.findUnique({ where: { id } });
-    return this.prisma.task.update({ where: { id }, data });
+    const oldTask = assignedToUserId !== undefined
+      ? await this.prisma.task.findUnique({ where: { id }, select: { assignedToUserId: true, title: true } })
+      : null;
+    const updated = await this.prisma.task.update({ where: { id }, data });
+    if (
+      oldTask &&
+      assignedToUserId &&
+      assignedToUserId !== oldTask.assignedToUserId &&
+      assignedToUserId !== user?.userId
+    ) {
+      this.notifications.createForUser(
+        assignedToUserId, 'TASK_ASSIGNED',
+        'Aufgabe zugewiesen',
+        updated.title,
+        'Task', id, `/tasks/${id}`,
+      ).catch(() => {});
+    }
+    return updated;
   }
   
   async createTask(body: any, user: any) {
@@ -61,7 +82,7 @@ export class TasksService {
       dealId,
     } = body;
     if (!title) throw new Error('Title is required');
-    return this.prisma.task.create({
+    const task = await this.prisma.task.create({
       data: {
         title,
         description,
@@ -75,6 +96,15 @@ export class TasksService {
         createdByUserId,
       },
     });
+    if (assignedToUserId && assignedToUserId !== createdByUserId) {
+      this.notifications.createForUser(
+        assignedToUserId, 'TASK_ASSIGNED',
+        'Neue Aufgabe zugewiesen',
+        title,
+        'Task', task.id, `/tasks/${task.id}`,
+      ).catch(() => {});
+    }
+    return task;
   }
 
   async updateStatus(id: string, status: string, user: any) {
@@ -109,10 +139,29 @@ async addComment(taskId: string, text: string, user: any) {
   const authorId = user?.userId || user?.id || user?.sub;
   if (!authorId) throw new Error('Authentication required to add a comment');
 
-  return this.prisma.comment.create({
+  const comment = await this.prisma.comment.create({
     data: { taskId, text, authorId },
     include: { author: true },
   });
+
+  const task = await this.prisma.task.findUnique({
+    where: { id: taskId },
+    select: { title: true, createdByUserId: true, assignedToUserId: true },
+  });
+  if (task) {
+    const recipients = new Set([task.createdByUserId, task.assignedToUserId].filter(Boolean));
+    recipients.delete(authorId);
+    for (const recipientId of recipients) {
+      this.notifications.createForUser(
+        recipientId!, 'TASK_COMMENT',
+        'Neuer Kommentar',
+        `${comment.author.name} hat auf "${task.title}" kommentiert`,
+        'Task', taskId, `/tasks/${taskId}`,
+      ).catch(() => {});
+    }
+  }
+
+  return comment;
 }
 
 

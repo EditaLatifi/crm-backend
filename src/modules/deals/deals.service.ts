@@ -3,12 +3,14 @@ import { forbidden, notFound } from '../../common/error/error.response';
 import { Deal, Role } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class DealsService {
   constructor(
     private prisma: PrismaService,
     private activityLogger: ActivityLoggerService,
+    private notifications: NotificationsService,
   ) {}
 
   // Analytics
@@ -260,6 +262,14 @@ export class DealsService {
         },
       }),
     ]);
+    if (deal.ownerUserId && deal.ownerUserId !== user.userId) {
+      this.notifications.createForUser(
+        deal.ownerUserId, 'DEAL_STAGE_CHANGED',
+        'Deal-Phase geändert',
+        `"${deal.name}" wurde in "${toStage.name}" verschoben`,
+        'Deal', dealId, `/deals/${dealId}`,
+      ).catch(() => {});
+    }
     return updatedDeal;
   }
 }

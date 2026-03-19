@@ -4,9 +4,10 @@ import { DealsController } from './deals.controller';
 import { CommonModule } from '../../common/common.module';
 import { ActivityModule } from '../activity/activity.module';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
-  imports: [CommonModule, ActivityModule],
+  imports: [CommonModule, ActivityModule, NotificationsModule],
   providers: [DealsService, ActivityLoggerService],
   controllers: [DealsController],
   exports: [DealsService],

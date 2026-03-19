@@ -29,6 +29,31 @@ enum VacationStatus {
   REJECTED
 }
 
+model Notification {
+  id         String           @id @default(uuid())
+  userId     String
+  user       User             @relation("UserNotifications", fields: [userId], references: [id], onDelete: Cascade)
+  type       NotificationType
+  title      String
+  body       String
+  entityType String?
+  entityId   String?
+  href       String?
+  read       Boolean          @default(false)
+  createdAt  DateTime         @default(now())
+
+  @@index([userId, read])
+  @@index([userId, createdAt])
+}
+
+enum NotificationType {
+  TASK_ASSIGNED
+  TASK_COMMENT
+  DEAL_STAGE_CHANGED
+  PERMIT_STATUS_CHANGED
+  VACATION_REVIEWED
+}
+
 model EmailLog {
   id          String   @id @default(uuid())
   subject     String
@@ -157,6 +182,7 @@ model User {
   budgetItems        BudgetItem[]      @relation("BudgetItemCreator")
   projectDocuments   ProjectDocument[] @relation("DocumentUploader")
   projectShares      ProjectShare[]    @relation("ShareCreator")
+  notifications      Notification[]    @relation("UserNotifications")
 }
 
 enum Role {

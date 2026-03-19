@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { Role } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 
 const USER_SELECT = { id: true, name: true, email: true, role: true };
 
 @Injectable()
 export class VacationService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   /** Employee: get own requests */
   async findMine(user: any) {
@@ -70,7 +74,7 @@ export class VacationService {
     if (user.role !== Role.ADMIN) throw new ForbiddenException('Nur Admins können Anträge genehmigen');
     const req = await this.prisma.vacationRequest.findUnique({ where: { id } });
     if (!req) throw new NotFoundException('Antrag nicht gefunden');
-    return this.prisma.vacationRequest.update({
+    const updated = await this.prisma.vacationRequest.update({
       where: { id },
       data: {
         status: action,
@@ -80,6 +84,16 @@ export class VacationService {
       },
       include: { user: { select: USER_SELECT }, reviewedBy: { select: USER_SELECT } },
     });
+    this.notifications.createForUser(
+      req.userId,
+      'VACATION_REVIEWED',
+      action === 'APPROVED' ? 'Urlaub genehmigt' : 'Urlaub abgelehnt',
+      action === 'APPROVED'
+        ? 'Dein Urlaubsantrag wurde genehmigt.'
+        : 'Dein Urlaubsantrag wurde abgelehnt.',
+      'VacationRequest', id, '/vacation',
+    ).catch(() => {});
+    return updated;
   }
 
   /** Stats for admin: days used per user per year */

@@ -1,10 +1,14 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { Role, PermitStatus } from '@prisma/client';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class PermitsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   async findByProject(projectId: string, user: any) {
     await this.checkProjectAccess(projectId, user);
@@ -80,6 +84,14 @@ export class PermitsService {
           actorUserId: user.userId,
         },
       });
+      if (permit.createdByUserId !== user.userId) {
+        this.notifications.createForUser(
+          permit.createdByUserId, 'PERMIT_STATUS_CHANGED',
+          'Baubewilligung aktualisiert',
+          `"${permit.title}" ist jetzt: ${dto.status}`,
+          'Permit', id, `/projects/${permit.projectId}`,
+        ).catch(() => {});
+      }
     }
     return updated;
   }
