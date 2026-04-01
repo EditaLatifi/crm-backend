@@ -13,16 +13,37 @@ export class VacationController {
     return this.service.findMine(req.user);
   }
 
+  /** Employee: get own stats (used/quota/remaining) */
+  @Get('my-stats')
+  myStats(@Request() req: any) {
+    return this.service.myStats(req.user);
+  }
+
   /** Admin: get all requests */
   @Get()
   findAll(@Query() query: any) {
     return this.service.findAll(query);
   }
 
-  /** Admin: stats */
+  /** Admin: stats with quota/remaining */
   @Get('stats')
   stats(@Query('year') year: string) {
     return this.service.stats(parseInt(year) || new Date().getFullYear());
+  }
+
+  /** Admin: get all quotas for a year */
+  @Get('quotas')
+  getQuotas(@Query('year') year: string) {
+    return this.service.getQuotas(parseInt(year) || new Date().getFullYear());
+  }
+
+  /** Admin: set quota for a user */
+  @Patch('quotas/:userId')
+  setQuota(
+    @Param('userId') userId: string,
+    @Body() body: { year: number; days: number },
+  ) {
+    return this.service.setQuota(userId, body.year, body.days);
   }
 
   /** Create request */

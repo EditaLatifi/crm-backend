@@ -69,7 +69,10 @@ export class VacationService {
     return this.prisma.vacationRequest.delete({ where: { id } });
   }
 
-  /** Admin: approve or reject */
+  /** Admin: approve or reject.
+   *  Admins may approve their own requests.
+   *  Non-admins cannot reach this endpoint (checked in controller).
+   */
   async review(id: string, action: 'APPROVED' | 'REJECTED', adminNote: string | undefined, user: any) {
     if (user.role !== Role.ADMIN) throw new ForbiddenException('Nur Admins können Anträge genehmigen');
     const req = await this.prisma.vacationRequest.findUnique({ where: { id } });
@@ -84,36 +87,102 @@ export class VacationService {
       },
       include: { user: { select: USER_SELECT }, reviewedBy: { select: USER_SELECT } },
     });
-    this.notifications.createForUser(
-      req.userId,
-      'VACATION_REVIEWED',
-      action === 'APPROVED' ? 'Urlaub genehmigt' : 'Urlaub abgelehnt',
-      action === 'APPROVED'
-        ? 'Dein Urlaubsantrag wurde genehmigt.'
-        : 'Dein Urlaubsantrag wurde abgelehnt.',
-      'VacationRequest', id, '/vacation',
-    ).catch(() => {});
+    // Notify employee (even if admin approved own request – notification is to the requester)
+    if (req.userId !== user.userId) {
+      this.notifications.createForUser(
+        req.userId,
+        'VACATION_REVIEWED',
+        action === 'APPROVED' ? 'Urlaub genehmigt' : 'Urlaub abgelehnt',
+        action === 'APPROVED'
+          ? 'Dein Urlaubsantrag wurde genehmigt.'
+          : 'Dein Urlaubsantrag wurde abgelehnt.',
+        'VacationRequest', id, '/vacation',
+      ).catch(() => {});
+    }
     return updated;
   }
 
-  /** Stats for admin: days used per user per year */
+  /** Stats for admin: days used per user per year, with quota and remaining */
   async stats(year: number) {
     const y = year || new Date().getFullYear();
-    const requests = await this.prisma.vacationRequest.findMany({
-      where: {
-        status: 'APPROVED',
-        startDate: { gte: new Date(`${y}-01-01`), lte: new Date(`${y}-12-31`) },
-      },
+    const [requests, quotas, allUsers] = await Promise.all([
+      this.prisma.vacationRequest.findMany({
+        where: {
+          status: 'APPROVED',
+          startDate: { gte: new Date(`${y}-01-01`), lte: new Date(`${y}-12-31`) },
+        },
+        include: { user: { select: USER_SELECT } },
+      }),
+      this.prisma.vacationQuota.findMany({
+        where: { year: y },
+        include: { user: { select: USER_SELECT } },
+      }),
+      this.prisma.user.findMany({ select: USER_SELECT }),
+    ]);
+
+    // Aggregate days used per user
+    const usedMap: Record<string, { user: any; days: number; requests: number }> = {};
+    for (const r of requests) {
+      if (!usedMap[r.userId]) usedMap[r.userId] = { user: r.user, days: 0, requests: 0 };
+      usedMap[r.userId].days += r.days;
+      usedMap[r.userId].requests += 1;
+    }
+
+    // Build quota map
+    const quotaMap: Record<string, number> = {};
+    for (const q of quotas) quotaMap[q.userId] = q.days;
+
+    // Merge: include all users that have a quota or used days
+    const userMap: Record<string, any> = {};
+    for (const u of allUsers) userMap[u.id] = u;
+
+    return allUsers.map((u: any) => ({
+      user: u,
+      days: usedMap[u.id]?.days ?? 0,
+      requests: usedMap[u.id]?.requests ?? 0,
+      quota: quotaMap[u.id] ?? null,
+      remaining: quotaMap[u.id] != null ? quotaMap[u.id] - (usedMap[u.id]?.days ?? 0) : null,
+    }));
+  }
+
+  /** Get quota for current user's own stats */
+  async myStats(user: any) {
+    const year = new Date().getFullYear();
+    const [requests, quota] = await Promise.all([
+      this.prisma.vacationRequest.findMany({
+        where: {
+          userId: user.userId,
+          status: 'APPROVED',
+          startDate: { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) },
+        },
+      }),
+      this.prisma.vacationQuota.findUnique({ where: { userId_year: { userId: user.userId, year } } }),
+    ]);
+    const used = requests.reduce((s, r) => s + r.days, 0);
+    return {
+      year,
+      used,
+      quota: quota?.days ?? null,
+      remaining: quota != null ? quota.days - used : null,
+    };
+  }
+
+  /** Admin: get all quotas for a year */
+  async getQuotas(year: number) {
+    return this.prisma.vacationQuota.findMany({
+      where: { year },
       include: { user: { select: USER_SELECT } },
     });
-    // Aggregate by user
-    const map: Record<string, { user: any; days: number; requests: number }> = {};
-    for (const r of requests) {
-      if (!map[r.userId]) map[r.userId] = { user: r.user, days: 0, requests: 0 };
-      map[r.userId].days += r.days;
-      map[r.userId].requests += 1;
-    }
-    return Object.values(map);
+  }
+
+  /** Admin: set quota for a user/year */
+  async setQuota(userId: string, year: number, days: number) {
+    return this.prisma.vacationQuota.upsert({
+      where: { userId_year: { userId, year } },
+      update: { days },
+      create: { userId, year, days },
+      include: { user: { select: USER_SELECT } },
+    });
   }
 
   private calcBusinessDays(start: Date, end: Date): number {

@@ -11,11 +11,13 @@ export class AccountsService {
     private activityLogger: ActivityLoggerService,
   ) {}
 
-  async findAll(user: any, page = 1, pageSize = 20): Promise<Account[]> {
-    // All authenticated users can see all accounts
+  async findAll(user: any, page = 1, pageSize = 20, type?: string): Promise<Account[]> {
+    const where: any = {};
+    if (type) where.type = type;
     return this.prisma.account.findMany({
+      where,
       skip: (page - 1) * pageSize,
-      take: pageSize,
+      take: Number(pageSize),
     });
   }
 
@@ -52,6 +54,9 @@ export class AccountsService {
         phone: body.phone || null,
         email: body.email || null,
         notes: body.notes || null,
+        vendorType: body.vendorType || null,
+        rating: body.rating ? Number(body.rating) : null,
+        contactPerson: body.contactPerson || null,
       },
     });
     if (user?.userId) {
@@ -76,6 +81,12 @@ export class AccountsService {
       throw forbidden('Only admins can change account type/status');
     }
 
+    const changes: Record<string, { from: any; to: any }> = {};
+    if (body.name && body.name !== account.name) changes['Name'] = { from: account.name, to: body.name };
+    if (body.type && body.type !== account.type) changes['Typ'] = { from: account.type, to: body.type };
+    if (body.phone !== undefined && body.phone !== account.phone) changes['Telefon'] = { from: account.phone, to: body.phone };
+    if (body.email !== undefined && body.email !== account.email) changes['E-Mail'] = { from: account.email, to: body.email };
+
     const updated = await this.prisma.account.update({
       where: { id },
       data: {
@@ -85,10 +96,13 @@ export class AccountsService {
         phone: body.phone,
         email: body.email,
         notes: body.notes,
+        vendorType: body.vendorType !== undefined ? (body.vendorType || null) : undefined,
+        rating: body.rating !== undefined ? (body.rating ? Number(body.rating) : null) : undefined,
+        contactPerson: body.contactPerson !== undefined ? (body.contactPerson || null) : undefined,
       },
     });
     if (user?.userId) {
-      await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Account', entityId: id, action: 'UPDATE', payloadJson: { name: updated.name } });
+      await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Account', entityId: id, action: 'UPDATE', payloadJson: { name: updated.name, ...(Object.keys(changes).length > 0 ? { changes } : {}) } });
     }
     return updated;
   }

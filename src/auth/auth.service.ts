@@ -22,6 +22,8 @@ export class AuthService {
 
   async login(user: any) {
     const payload = { sub: user.id, role: user.role };
+    // Update lastLoginAt
+    this.usersService.updateLastLogin(user.id).catch(() => {});
     return {
       access_token: this.jwtService.sign(payload),
       user: {

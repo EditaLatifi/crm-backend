@@ -20,6 +20,7 @@ enum VacationType {
   VACATION
   SICK
   UNPAID
+  MILITARY_SERVICE
   OTHER
 }
 
@@ -27,6 +28,18 @@ enum VacationStatus {
   PENDING
   APPROVED
   REJECTED
+}
+
+model VacationQuota {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("VacationQuotas", fields: [userId], references: [id], onDelete: Cascade)
+  year      Int
+  days      Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([userId, year])
+  @@index([year])
 }
 
 model Notification {
@@ -100,6 +113,8 @@ model Attachment {
   deal      Deal     @relation(fields: [dealId], references: [id])
   url       String
   filename  String
+  mimeType  String?
+  size      Int?
   uploadedByUserId String
   uploadedBy User   @relation("uploadedBy", fields: [uploadedByUserId], references: [id])
   createdAt DateTime @default(now())
@@ -152,6 +167,7 @@ model User {
   passwordHash String
   name         String
   role         Role
+  lastLoginAt  DateTime?
   createdAt    DateTime @default(now())
   accounts     Account[] @relation("AccountOwner")
   createdAccounts Account[] @relation("AccountCreator")
@@ -172,6 +188,7 @@ model User {
   emailLogs        EmailLog[]       @relation("EmailLogCreator")
   vacationRequests VacationRequest[] @relation("VacationRequests")
   reviewedVacations VacationRequest[] @relation("VacationReviewer")
+  vacationQuotas   VacationQuota[]  @relation("VacationQuotas")
   ownedProjects      Project[]         @relation("ProjectOwner")
   createdProjects    Project[]         @relation("ProjectCreator")
   projectMemberships ProjectMember[]   @relation("ProjectMembers")
@@ -181,6 +198,7 @@ model User {
   createdVendors     Vendor[]          @relation("VendorCreator")
   budgetItems        BudgetItem[]      @relation("BudgetItemCreator")
   projectDocuments   ProjectDocument[] @relation("DocumentUploader")
+  taskDocuments      TaskDocument[]    @relation("TaskDocUploader")
   projectShares      ProjectShare[]    @relation("ShareCreator")
   notifications      Notification[]    @relation("UserNotifications")
 }
@@ -210,6 +228,10 @@ model Account {
   appointments   Appointment[]
   emailLogs      EmailLog[]
   projects       Project[]
+  projectSuppliers ProjectSupplier[]
+  vendorType     VendorType?
+  rating         Int?
+  contactPerson  String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   dailyTimeByAccount DailyTimeByAccount[]
@@ -223,6 +245,7 @@ enum AccountType {
   CLIENT
   POTENTIAL_CLIENT
   PARTNER
+  SUPPLIER
 }
 
 model Contact {
@@ -269,6 +292,8 @@ model Deal {
   dealScore      Int      @default(0) // Calculated score for the deal
   expectedCloseDate DateTime
   followUpDate   DateTime?
+  phases         Json?  // SIA Leistungsphasen array, e.g. [31, 52]
+  phaseBudgets   Json?  // Hour budgets per phase, e.g. {"31.1": 40, "52": 100}
   customFields   Json? // Flexible custom fields per deal
   ownerUserId    String?
   owner          User?    @relation("DealOwner", fields: [ownerUserId], references: [id])
@@ -321,6 +346,14 @@ model Task {
   // already has activities and dailyTimeByTask
   dealId          String?
   deal            Deal?    @relation(fields: [dealId], references: [id])
+  projectId       String?
+  project         Project? @relation("ProjectTasks", fields: [projectId], references: [id])
+  phase           String?  // SIA Leistungsphase code e.g. "31.1", "52"
+  specification   String?  // Free text specification
+  assigneeIds     Json?    // Additional assignee user IDs array
+  budgetHours     Float?   // Hour budget for this task
+  checklists      Json?    // Array of { id, title, items: [{ id, text, done }] }
+  documents       TaskDocument[]
   timeEntries     TimeEntry[]
   runningTimers   RunningTimer[]
   createdAt       DateTime  @default(now())
@@ -335,6 +368,21 @@ model Task {
   @@index([assignedToUserId])
   @@index([createdByUserId])
   @@index([accountId])
+}
+
+model TaskDocument {
+  id               String   @id @default(uuid())
+  taskId           String
+  task             Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  name             String
+  url              String
+  mimeType         String?
+  size             Int?
+  category         String?
+  uploadedByUserId String
+  uploadedBy       User     @relation("TaskDocUploader", fields: [uploadedByUserId], references: [id])
+  createdAt        DateTime @default(now())
+  @@index([taskId])
 }
 
 enum TaskStatus {
@@ -357,6 +405,8 @@ model TimeEntry {
   account     Account  @relation(fields: [accountId], references: [id])
   taskId      String?
   task        Task?    @relation(fields: [taskId], references: [id])
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
   startedAt   DateTime
   endedAt     DateTime
   durationMinutes Int
@@ -446,7 +496,10 @@ model Project {
   budgetItems     BudgetItem[]
   documents       ProjectDocument[]
   vendors         ProjectVendor[]
+  suppliers       ProjectSupplier[]
   shares          ProjectShare[]
+  timeEntries     TimeEntry[]
+  tasks           Task[]        @relation("ProjectTasks")
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -594,6 +647,20 @@ model ProjectVendor {
 
   @@unique([projectId, vendorId])
   @@index([vendorId])
+}
+
+model ProjectSupplier {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  phase       String?
+  notes       String?
+  assignedAt  DateTime @default(now())
+
+  @@unique([projectId, accountId])
+  @@index([accountId])
 }
 
 enum VendorType {

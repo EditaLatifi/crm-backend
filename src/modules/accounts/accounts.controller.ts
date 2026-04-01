@@ -10,9 +10,9 @@ export class AccountsController {
   constructor(private readonly accountsService: AccountsService) {}
 
   @Get()
-  async findAll(@Query() query: PaginationDto, @Request() req: any) {
-    const { page = 1, pageSize = 20 } = query;
-    return this.accountsService.findAll(req.user, page, pageSize);
+  async findAll(@Query() query: any, @Request() req: any) {
+    const { page = 1, pageSize = 20, type } = query;
+    return this.accountsService.findAll(req.user, page, pageSize, type);
   }
 
   @Post()

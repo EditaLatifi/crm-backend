@@ -1,5 +1,6 @@
 
-import { Controller, Get, Param, Patch, Body, Request, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Delete, Body, Request, Post, UseGuards, Query, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { TasksService } from './tasks.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 
@@ -62,9 +63,33 @@ export class TasksController {
     return this.tasksService.addTimeEntry(id, body, req.user);
   }
 
+  // ─── Task Documents ───
+  @Get(':id/documents')
+  async getDocuments(@Param('id') id: string) {
+    return this.tasksService.getDocuments(id);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/documents/upload')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
+  async uploadDocument(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('category') category: string,
+    @Request() req: any,
+  ) {
+    return this.tasksService.uploadDocument(id, file, category, req.user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete('documents/:docId')
+  async deleteDocument(@Param('docId') docId: string, @Request() req: any) {
+    return this.tasksService.deleteDocument(docId, req.user);
+  }
+
   @Get()
-  async findAll(@Request() req: any): Promise<any[]> {
-    return this.tasksService.findAll(req.user);
+  async findAll(@Request() req: any, @Query('assignedToMe') assignedToMe?: string): Promise<any[]> {
+    return this.tasksService.findAll(req.user, assignedToMe === 'true');
   }
 
   @Get(':id')

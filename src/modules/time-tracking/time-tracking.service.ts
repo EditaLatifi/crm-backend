@@ -92,38 +92,45 @@ export class TimeTrackingService {
     return { discarded: true };
   }
 
-  async findAll(user: any, page = 1, pageSize = 20): Promise<TimeEntry[]> {
-    const include = { user: true, account: true, task: true };
-    let result;
-    if (!user || !user.role) {
-      result = await this.prisma.timeEntry.findMany({
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        include,
-      });
-      return result;
+  async findAll(
+    user: any,
+    filters: { userId?: string; from?: string; to?: string; accountId?: string; projectId?: string } = {},
+    page = 1,
+    pageSize = 1000,
+  ): Promise<TimeEntry[]> {
+    const include = { user: true, account: true, task: true, project: true };
+    const where: any = {};
+
+    // Role-based base filter
+    if (user && user.role && user.role !== Role.ADMIN) {
+      where.userId = user.userId;
     }
-    if (user.role === Role.ADMIN) {
-      result = await this.prisma.timeEntry.findMany({
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        include,
-      });
-      return result;
+
+    // Additional filters
+    if (filters.userId) where.userId = filters.userId;
+    if (filters.accountId) where.accountId = filters.accountId;
+    if (filters.projectId) where.projectId = filters.projectId;
+    if (filters.from || filters.to) {
+      where.startedAt = {};
+      if (filters.from) where.startedAt.gte = new Date(filters.from);
+      if (filters.to) {
+        const toDate = new Date(filters.to);
+        toDate.setHours(23, 59, 59, 999);
+        where.startedAt.lte = toDate;
+      }
     }
-    result = await this.prisma.timeEntry.findMany({
-      where: { userId: user.userId },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+
+    return this.prisma.timeEntry.findMany({
+      where,
+      orderBy: { startedAt: 'desc' },
       include,
     });
-    return result;
   }
 
   async findById(id: string, user: any): Promise<TimeEntry> {
     const entry = await this.prisma.timeEntry.findUnique({
       where: { id },
-      include: { user: true, account: true, task: true },
+      include: { user: true, account: true, task: true, project: true },
     });
     if (!entry) throw notFound('Time entry not found');
     if (!user || !user.role) {

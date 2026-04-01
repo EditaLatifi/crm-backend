@@ -1,5 +1,6 @@
 
-import { Controller, Get, Post, Patch, Delete, Param, Request, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Request, Body, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { DealsService } from './deals.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { ChangeDealStageDto } from './dto/change-stage.dto';
@@ -23,7 +24,7 @@ export class DealsController {
     return this.dealsService.getDealInsights();
   }
 
-  // Notes
+  // Notes / Kommentare
   @Post(':id/notes')
   async addNote(@Param('id') id: string, @Body() dto: CreateNoteDto, @Request() req: any) {
     return this.dealsService.addNote(id, dto.content, req.user);
@@ -34,15 +35,31 @@ export class DealsController {
     return this.dealsService.getNotes(id);
   }
 
-  // Attachments
+  // Attachments (URL-based legacy)
   @Post(':id/attachments')
   async addAttachment(@Param('id') id: string, @Body() dto: CreateAttachmentDto, @Request() req: any) {
     return this.dealsService.addAttachment(id, dto.url, dto.filename, req.user);
   }
 
+  // File upload
+  @Post(':id/upload')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024 } }))
+  async uploadAttachment(
+    @Param('id') id: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Request() req: any,
+  ) {
+    return this.dealsService.uploadAttachment(id, file, req.user);
+  }
+
   @Get(':id/attachments')
   async getAttachments(@Param('id') id: string) {
     return this.dealsService.getAttachments(id);
+  }
+
+  @Delete('attachments/:attachmentId')
+  async deleteAttachment(@Param('attachmentId') attachmentId: string, @Request() req: any) {
+    return this.dealsService.deleteAttachment(attachmentId, req.user);
   }
 
   @Post(':id/change-stage')
@@ -69,7 +86,6 @@ export class DealsController {
     return this.dealsService.delete(id, req.user);
   }
 
-  // GET /deal-stages: List all deal stages for board columns
   @Get('/deal-stages')
   async getDealStages() {
     return this.dealsService.getDealStages();

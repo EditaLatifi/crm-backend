@@ -2,6 +2,7 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SupabaseStorageService } from '../documents/supabase-storage.service';
 import { Task, Role } from '@prisma/client';
 
 @Injectable()
@@ -32,9 +33,45 @@ export class TasksService {
   constructor(
     private prisma: PrismaService,
     private notifications: NotificationsService,
+    private storage: SupabaseStorageService,
   ) {}
+
+  // ─── Task Documents ───
+  async getDocuments(taskId: string) {
+    return this.prisma.taskDocument.findMany({
+      where: { taskId },
+      include: { uploadedBy: { select: { id: true, name: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async uploadDocument(taskId: string, file: Express.Multer.File, category: string | undefined, user: any) {
+    const url = await this.storage.uploadFile(`tasks/${taskId}`, file);
+    return this.prisma.taskDocument.create({
+      data: {
+        taskId,
+        name: file.originalname,
+        url,
+        mimeType: file.mimetype,
+        size: file.size,
+        category: category || null,
+        uploadedByUserId: user.userId,
+      },
+      include: { uploadedBy: { select: { id: true, name: true } } },
+    });
+  }
+
+  async deleteDocument(docId: string, user: any) {
+    const doc = await this.prisma.taskDocument.findUnique({ where: { id: docId } });
+    if (!doc) throw new NotFoundException('Dokument nicht gefunden');
+    if (doc.url.includes('supabase.co')) {
+      await this.storage.deleteFile(doc.url).catch(() => {});
+    }
+    await this.prisma.taskDocument.delete({ where: { id: docId } });
+    return { deleted: true };
+  }
   async updateTask(id: string, body: any, user: any) {
-    const { title, description, dueDate, estimate, status, priority, assignedToUserId, accountId, contactId, dealId } = body;
+    const { title, description, dueDate, estimate, status, priority, assignedToUserId, accountId, contactId, dealId, phase, specification, assigneeIds, budgetHours } = body;
     const data: any = {};
     if (title !== undefined) data.title = title;
     if (description !== undefined) data.description = description;
@@ -46,10 +83,14 @@ export class TasksService {
     if (accountId !== undefined) data.accountId = accountId || null;
     if (contactId !== undefined) data.contactId = contactId || null;
     if (dealId !== undefined) data.dealId = dealId || null;
+    if (body.projectId !== undefined) data.projectId = body.projectId || null;
+    if (phase !== undefined) data.phase = phase || null;
+    if (specification !== undefined) data.specification = specification || null;
+    if (assigneeIds !== undefined) data.assigneeIds = assigneeIds;
+    if (budgetHours !== undefined) data.budgetHours = budgetHours !== null && budgetHours !== '' ? Number(budgetHours) : null;
+    if (body.checklists !== undefined) data.checklists = body.checklists;
     if (Object.keys(data).length === 0) return this.prisma.task.findUnique({ where: { id } });
-    const oldTask = assignedToUserId !== undefined
-      ? await this.prisma.task.findUnique({ where: { id }, select: { assignedToUserId: true, title: true } })
-      : null;
+    const oldTask = await this.prisma.task.findUnique({ where: { id }, select: { assignedToUserId: true, title: true } });
     const updated = await this.prisma.task.update({ where: { id }, data });
     if (
       oldTask &&
@@ -63,6 +104,24 @@ export class TasksService {
         updated.title,
         'Task', id, `/tasks/${id}`,
       ).catch(() => {});
+    }
+    if (user?.userId && oldTask) {
+      const historyEntries: Promise<any>[] = [];
+      if (title !== undefined && title !== oldTask.title) {
+        historyEntries.push(this.prisma.taskHistory.create({
+          data: { taskId: id, action: 'TITLE_CHANGED', payload: { from: oldTask.title, to: title }, userId: user.userId },
+        }));
+      }
+      if (assignedToUserId !== undefined && assignedToUserId !== oldTask.assignedToUserId) {
+        const [fromUser, toUser] = await Promise.all([
+          oldTask.assignedToUserId ? this.prisma.user.findUnique({ where: { id: oldTask.assignedToUserId }, select: { name: true } }) : Promise.resolve(null),
+          assignedToUserId ? this.prisma.user.findUnique({ where: { id: assignedToUserId }, select: { name: true } }) : Promise.resolve(null),
+        ]);
+        historyEntries.push(this.prisma.taskHistory.create({
+          data: { taskId: id, action: 'ASSIGNED', payload: { from: fromUser?.name ?? null, to: toUser?.name ?? null }, userId: user.userId },
+        }));
+      }
+      await Promise.all(historyEntries);
     }
     return updated;
   }
@@ -80,6 +139,10 @@ export class TasksService {
       accountId,
       contactId,
       dealId,
+      phase,
+      specification,
+      assigneeIds,
+      budgetHours,
     } = body;
     if (!title) throw new Error('Title is required');
     const task = await this.prisma.task.create({
@@ -93,6 +156,11 @@ export class TasksService {
         accountId: accountId || undefined,
         contactId: contactId || undefined,
         dealId: dealId || undefined,
+        projectId: body.projectId || undefined,
+        phase: phase || undefined,
+        specification: specification || undefined,
+        assigneeIds: assigneeIds || undefined,
+        budgetHours: budgetHours ? Number(budgetHours) : undefined,
         createdByUserId,
       },
     });
@@ -104,23 +172,32 @@ export class TasksService {
         'Task', task.id, `/tasks/${task.id}`,
       ).catch(() => {});
     }
+    await this.prisma.taskHistory.create({
+      data: { taskId: task.id, action: 'CREATED', payload: { title }, userId: createdByUserId },
+    });
     return task;
   }
 
   async updateStatus(id: string, status: string, user: any) {
-    // Optionally: check permissions here
-    // Cast status to TaskStatus enum
-    return this.prisma.task.update({
-      where: { id },
-      data: { status: status as any },
-    });
+    const old = await this.prisma.task.findUnique({ where: { id }, select: { status: true } });
+    const updated = await this.prisma.task.update({ where: { id }, data: { status: status as any } });
+    if (user?.userId && old && status !== old.status) {
+      await this.prisma.taskHistory.create({
+        data: { taskId: id, action: 'STATUS_CHANGED', payload: { from: old.status, to: status }, userId: user.userId },
+      });
+    }
+    return updated;
   }
 
   async updatePriority(id: string, priority: string, user: any) {
-    return this.prisma.task.update({
-      where: { id },
-      data: { priority: priority as any },
-    });
+    const old = await this.prisma.task.findUnique({ where: { id }, select: { priority: true } });
+    const updated = await this.prisma.task.update({ where: { id }, data: { priority: priority as any } });
+    if (user?.userId && old && priority !== old.priority) {
+      await this.prisma.taskHistory.create({
+        data: { taskId: id, action: 'PRIORITY_CHANGED', payload: { from: old.priority, to: priority }, userId: user.userId },
+      });
+    }
+    return updated;
   }
 
   async getComments(taskId: string) {
@@ -226,10 +303,18 @@ async addComment(taskId: string, text: string, user: any) {
     }
   }
 
-  async findAll(_user?: any): Promise<any[]> {
+  async findAll(user?: any, assignedToMe = false): Promise<any[]> {
+    const where: any = {};
+    if (assignedToMe && user?.userId) {
+      where.assignedToUserId = user.userId;
+    }
     return this.prisma.task.findMany({
+      where,
       include: {
         assignee: { select: { id: true, name: true, email: true } },
+        deal: { select: { id: true, name: true, phases: true, phaseBudgets: true } },
+        project: { select: { id: true, name: true } },
+        timeEntries: { select: { durationMinutes: true } },
       },
       orderBy: { createdAt: 'desc' },
     });

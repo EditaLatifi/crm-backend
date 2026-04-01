@@ -20,8 +20,4 @@ export class CreateDealDto {
   @IsString()
   @IsNotEmpty()
   currency!: string;
-
-  @IsNumber()
-  @IsOptional()
-  probability?: number;
 }

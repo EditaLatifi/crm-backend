@@ -104,6 +104,32 @@ export class VendorsService {
     return { removed: true };
   }
 
+  async findSuppliersByProject(projectId: string, user: any) {
+    await this.checkProjectAccess(projectId, user);
+    return this.prisma.projectSupplier.findMany({
+      where: { projectId },
+      include: { account: true },
+      orderBy: { assignedAt: 'desc' },
+    });
+  }
+
+  async assignSupplierToProject(projectId: string, accountId: string, dto: any, user: any) {
+    await this.checkProjectAccess(projectId, user);
+    return this.prisma.projectSupplier.upsert({
+      where: { projectId_accountId: { projectId, accountId } },
+      create: { projectId, accountId, phase: dto.phase, notes: dto.notes },
+      update: { phase: dto.phase, notes: dto.notes },
+    });
+  }
+
+  async removeSupplierFromProject(projectId: string, accountId: string, user: any) {
+    await this.checkProjectAccess(projectId, user);
+    await this.prisma.projectSupplier.delete({
+      where: { projectId_accountId: { projectId, accountId } },
+    });
+    return { removed: true };
+  }
+
   async getStats() {
     const total = await this.prisma.vendor.count();
     const byType = await this.prisma.vendor.groupBy({ by: ['type'], _count: { id: true } });

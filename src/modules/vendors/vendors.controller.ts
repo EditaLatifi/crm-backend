@@ -45,4 +45,19 @@ export class VendorsController {
   removeFromProject(@Param('projectId') projectId: string, @Param('vendorId') vendorId: string, @Request() req: any) {
     return this.service.removeFromProject(projectId, vendorId, req.user);
   }
+
+  @Get('projects/:projectId/suppliers')
+  findSuppliers(@Param('projectId') projectId: string, @Request() req: any) {
+    return this.service.findSuppliersByProject(projectId, req.user);
+  }
+
+  @Post('projects/:projectId/suppliers/:accountId')
+  assignSupplier(@Param('projectId') projectId: string, @Param('accountId') accountId: string, @Body() dto: any, @Request() req: any) {
+    return this.service.assignSupplierToProject(projectId, accountId, dto, req.user);
+  }
+
+  @Delete('projects/:projectId/suppliers/:accountId')
+  removeSupplier(@Param('projectId') projectId: string, @Param('accountId') accountId: string, @Request() req: any) {
+    return this.service.removeSupplierFromProject(projectId, accountId, req.user);
+  }
 }

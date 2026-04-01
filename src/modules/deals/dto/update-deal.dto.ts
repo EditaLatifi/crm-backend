@@ -16,8 +16,4 @@ export class UpdateDealDto {
   @IsString()
   @IsOptional()
   currency?: string;
-
-  @IsNumber()
-  @IsOptional()
-  probability?: number;
 }

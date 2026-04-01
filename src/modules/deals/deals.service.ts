@@ -4,6 +4,7 @@ import { Deal, Role } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { SupabaseStorageService } from '../documents/supabase-storage.service';
 
 @Injectable()
 export class DealsService {
@@ -11,6 +12,7 @@ export class DealsService {
     private prisma: PrismaService,
     private activityLogger: ActivityLoggerService,
     private notifications: NotificationsService,
+    private storage: SupabaseStorageService,
   ) {}
 
   // Analytics
@@ -65,17 +67,17 @@ export class DealsService {
         // Enhanced AI recommendation logic
         let recommendation = '';
         if (attention) {
-          recommendation = 'Follow up soon';
+          recommendation = 'Nachfassen notwendig';
         } else if (closeProbability === 1) {
-          recommendation = 'Deal won! Celebrate and record outcome.';
+          recommendation = 'Deal gewonnen! Ergebnis erfassen.';
         } else if (closeProbability === 0) {
-          recommendation = 'Deal lost. Review and learn.';
+          recommendation = 'Deal verloren. Analyse und Learnings.';
         } else if (closeProbability > 0.7) {
-          recommendation = 'High chance to close. Push for final steps.';
+          recommendation = 'Hohe Abschlusswahrscheinlichkeit. Letzte Schritte einleiten.';
         } else if (closeProbability > 0.4) {
-          recommendation = 'Deal progressing. Keep nurturing.';
+          recommendation = 'Deal entwickelt sich. Engagement fortsetzen.';
         } else {
-          recommendation = 'Early stage. Qualify and engage.';
+          recommendation = 'Frühphase. Qualifizieren und kontaktieren.';
         }
 
         return {
@@ -107,6 +109,7 @@ export class DealsService {
   async getNotes(dealId: string) {
     return this.prisma.note.findMany({
       where: { dealId },
+      include: { createdBy: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -126,8 +129,34 @@ export class DealsService {
   async getAttachments(dealId: string) {
     return this.prisma.attachment.findMany({
       where: { dealId },
+      include: { uploadedBy: { select: { id: true, name: true } } },
       orderBy: { createdAt: 'desc' },
     });
+  }
+
+  async uploadAttachment(dealId: string, file: Express.Multer.File, user: any) {
+    const url = await this.storage.uploadFile(`deals/${dealId}`, file);
+    return this.prisma.attachment.create({
+      data: {
+        dealId,
+        url,
+        filename: file.originalname,
+        mimeType: file.mimetype,
+        size: file.size,
+        uploadedByUserId: user.userId,
+      },
+      include: { uploadedBy: { select: { id: true, name: true } } },
+    });
+  }
+
+  async deleteAttachment(attachmentId: string, user: any) {
+    const att = await this.prisma.attachment.findUnique({ where: { id: attachmentId } });
+    if (!att) throw new NotFoundException('Anhang nicht gefunden');
+    if (att.url.includes('supabase.co')) {
+      await this.storage.deleteFile(att.url).catch(() => {});
+    }
+    await this.prisma.attachment.delete({ where: { id: attachmentId } });
+    return { deleted: true };
   }
 
   // Helper: get stage weight for scoring
@@ -156,8 +185,8 @@ export class DealsService {
         accountId: body.accountId,
         stageId,
         amount,
-        currency: body.currency || 'USD',
-        probability: body.probability || 0,
+        currency: 'CHF',
+        probability: 0,
         dealScore,
         expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : new Date(),
         ownerUserId,
@@ -177,6 +206,10 @@ export class DealsService {
     if (user && user.role !== Role.ADMIN && deal.ownerUserId !== effectiveUserId && deal.createdByUserId !== effectiveUserId) {
       throw new ForbiddenException('Access denied');
     }
+    const changes: Record<string, { from: any; to: any }> = {};
+    if (body.name && body.name !== deal.name) changes['Name'] = { from: deal.name, to: body.name };
+    if (body.amount !== undefined && Number(body.amount) !== deal.amount) changes['Betrag'] = { from: deal.amount, to: Number(body.amount) };
+
     const amount = body.amount !== undefined ? body.amount : deal.amount;
     const stageId = body.stageId || deal.stageId;
     const dealScore = await this.calculateDealScore(amount, stageId);
@@ -186,15 +219,16 @@ export class DealsService {
         name: body.name,
         stageId,
         amount,
-        currency: body.currency,
-        probability: body.probability,
+        currency: 'CHF',
         dealScore,
         expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : undefined,
         followUpDate: body.followUpDate !== undefined ? (body.followUpDate ? new Date(body.followUpDate) : null) : undefined,
+        phases: body.phases !== undefined ? body.phases : undefined,
+        phaseBudgets: body.phaseBudgets !== undefined ? body.phaseBudgets : undefined,
         customFields: body.customFields,
       },
     });
-    await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: id, action: 'UPDATE', payloadJson: { name: updated.name } });
+    await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: id, action: 'UPDATE', payloadJson: { name: updated.name, ...(Object.keys(changes).length > 0 ? { changes } : {}) } });
     return updated;
   }
 
@@ -227,7 +261,10 @@ export class DealsService {
   }
 
   async findById(id: string, _user?: any): Promise<Deal> {
-    const deal = await this.prisma.deal.findUnique({ where: { id } });
+    const deal = await this.prisma.deal.findUnique({
+      where: { id },
+      include: { stage: true, account: true, owner: { select: { id: true, name: true } }, creator: { select: { id: true, name: true } } },
+    });
     if (!deal) throw new NotFoundException('Deal not found');
     return deal;
   }

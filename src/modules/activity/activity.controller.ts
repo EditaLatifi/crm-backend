@@ -8,7 +8,24 @@ export class ActivityController {
 
   @UseGuards(JwtAuthGuard)
   @Get()
-  async findAll(@Request() req: any, @Query('limit') limit?: string): Promise<any[]> {
-    return this.activityService.findAll(req.user, limit ? parseInt(limit) : 50);
+  async findAll(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('userId') userId?: string,
+    @Query('action') action?: string,
+    @Query('entityType') entityType?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+  ) {
+    return this.activityService.findAll(req.user, {
+      page: page ? parseInt(page) : 1,
+      pageSize: pageSize ? parseInt(pageSize) : 25,
+      userId: userId || undefined,
+      action: action || undefined,
+      entityType: entityType || undefined,
+      dateFrom: dateFrom || undefined,
+      dateTo: dateTo || undefined,
+    });
   }
 }

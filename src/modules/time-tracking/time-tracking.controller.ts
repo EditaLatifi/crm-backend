@@ -35,9 +35,15 @@ export class TimeTrackingController {
 
   @UseGuards(JwtAuthGuard)
   @Get()
-  async findAll(@Request() req: any, @Query() query: PaginationDto) {
-    const { page = 1, pageSize = 1000 } = query;
-    return this.timeTrackingService.findAll(req.user, page, pageSize);
+  async findAll(
+    @Request() req: any,
+    @Query('userId') userId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('accountId') accountId?: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.timeTrackingService.findAll(req.user, { userId, from, to, accountId, projectId });
   }
 
   @UseGuards(JwtAuthGuard)
