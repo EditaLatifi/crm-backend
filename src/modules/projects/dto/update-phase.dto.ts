@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, IsDateString } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsDateString, IsNumber } from 'class-validator';
 import { PhaseStatus } from '@prisma/client';
 
 export class UpdatePhaseDto {
@@ -17,4 +17,8 @@ export class UpdatePhaseDto {
   @IsOptional()
   @IsDateString()
   endDate?: string;
+
+  @IsOptional()
+  @IsNumber()
+  budgetHours?: number;
 }

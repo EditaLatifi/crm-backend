@@ -5,18 +5,33 @@ const prisma = new PrismaClient();
 
 async function main() {
 
-  // Create default deal stages
+  // Rename English deal stages to German (for existing databases)
+  const stageRenames: Record<string, string> = {
+    'New': 'Erstkontakt',
+    'Prospecting': 'Erstkontakt',
+    'Qualified': 'Qualifiziert',
+    'Proposal': 'Angebot',
+    'Negotiation': 'Verhandlung',
+    'Won': 'Gewonnen',
+    'Lost': 'Verloren',
+  };
+  for (const [oldName, newName] of Object.entries(stageRenames)) {
+    await prisma.dealStage.updateMany({ where: { name: oldName }, data: { name: newName } });
+  }
+
+  // Create default deal stages (German)
   const stages = [
-    { name: 'New', order: 1, isWon: false, isLost: false },
-    { name: 'Qualified', order: 2, isWon: false, isLost: false },
-    { name: 'Proposal', order: 3, isWon: false, isLost: false },
-    { name: 'Won', order: 4, isWon: true, isLost: false },
-    { name: 'Lost', order: 5, isWon: false, isLost: true },
+    { name: 'Erstkontakt', order: 1, isWon: false, isLost: false },
+    { name: 'Qualifiziert', order: 2, isWon: false, isLost: false },
+    { name: 'Angebot', order: 3, isWon: false, isLost: false },
+    { name: 'Verhandlung', order: 4, isWon: false, isLost: false },
+    { name: 'Gewonnen', order: 5, isWon: true, isLost: false },
+    { name: 'Verloren', order: 6, isWon: false, isLost: true },
   ];
   for (const s of stages) {
     await prisma.dealStage.upsert({
       where: { name: s.name },
-      update: {},
+      update: { order: s.order, isWon: s.isWon, isLost: s.isLost },
       create: s,
     });
   }
@@ -80,15 +95,11 @@ async function main() {
   });
 
   // Create sample deals
-  // Create a deal stage for deals (idempotent)
-  const stage = await prisma.dealStage.upsert({
-    where: { name: 'Prospecting' },
-    update: {},
-    create: {
-      name: 'Prospecting',
-      order: 1,
-    },
-  });
+  // Use the first stage for sample deals
+  const stage = await prisma.dealStage.findFirst({
+    where: { name: 'Erstkontakt' },
+  }) || await prisma.dealStage.findFirst({ orderBy: { order: 'asc' } });
+  if (!stage) throw new Error('No deal stages found');
 
   await prisma.deal.upsert({
     where: { name: 'Big Sale' },
@@ -98,8 +109,7 @@ async function main() {
       accountId: account1.id,
       stageId: stage.id,
       amount: 10000,
-      currency: 'USD',
-      probability: 80,
+      currency: 'CHF',
       expectedCloseDate: new Date(),
       ownerUserId: admin.id,
       createdByUserId: admin.id,
@@ -113,8 +123,7 @@ async function main() {
       accountId: account2.id,
       stageId: stage.id,
       amount: 5000,
-      currency: 'USD',
-      probability: 60,
+      currency: 'CHF',
       expectedCloseDate: new Date(),
       ownerUserId: user.id,
       createdByUserId: user.id,
@@ -124,8 +133,8 @@ async function main() {
   // Create sample tasks
   await prisma.task.createMany({
     data: [
-      { title: 'Call John', accountId: account1.id, assignedToUserId: user1.id, createdByUserId: admin.id, status: 'OPEN', priority: 'MEDIUM' },
-      { title: 'Prepare contract', accountId: account2.id, assignedToUserId: user2.id, createdByUserId: user1.id, status: 'OPEN', priority: 'HIGH' },
+      { title: 'Call John', accountId: account1.id, assignedToUserId: user.id, createdByUserId: admin.id, status: 'OPEN', priority: 'MEDIUM' },
+      { title: 'Prepare contract', accountId: account2.id, assignedToUserId: admin.id, createdByUserId: user.id, status: 'OPEN', priority: 'HIGH' },
     ],
   });
 
@@ -133,7 +142,7 @@ async function main() {
   await prisma.timeEntry.createMany({
     data: [
       { userId: admin.id, accountId: account1.id, startedAt: new Date(), endedAt: new Date(), durationMinutes: 60, description: 'Demo call' },
-      { userId: user1.id, accountId: account2.id, startedAt: new Date(), endedAt: new Date(), durationMinutes: 120, description: 'Follow-up' },
+      { userId: user.id, accountId: account2.id, startedAt: new Date(), endedAt: new Date(), durationMinutes: 120, description: 'Follow-up' },
     ],
   });
 }

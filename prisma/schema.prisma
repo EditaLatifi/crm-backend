@@ -100,11 +100,14 @@ model Appointment {
   deal        Deal?     @relation(fields: [dealId], references: [id])
   createdByUserId String
   creator     User      @relation("AppointmentCreator", fields: [createdByUserId], references: [id])
+  assigneeUserId String?
+  assignee    User?     @relation("AppointmentAssignee", fields: [assigneeUserId], references: [id])
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
   @@index([startAt])
   @@index([createdByUserId])
+  @@index([assigneeUserId])
 }
 
 model Attachment {
@@ -185,6 +188,7 @@ model User {
   uploadedAttachments Attachment[] @relation("uploadedBy")
   createdNotes Note[] @relation("createdBy")
   appointments     Appointment[]    @relation("AppointmentCreator")
+  assignedAppointments Appointment[] @relation("AppointmentAssignee")
   emailLogs        EmailLog[]       @relation("EmailLogCreator")
   vacationRequests VacationRequest[] @relation("VacationRequests")
   reviewedVacations VacationRequest[] @relation("VacationReviewer")
@@ -213,6 +217,11 @@ model Account {
   name           String
   type           AccountType
   address        String?
+  addressStreet  String?
+  addressNumber  String?
+  addressZip     String?
+  addressCity    String?
+  addressCanton  String?
   phone          String?
   email          String?
   notes          String?
@@ -236,6 +245,7 @@ model Account {
   updatedAt      DateTime  @updatedAt
   dailyTimeByAccount DailyTimeByAccount[]
 
+  @@unique([name])
   @@index([ownerUserId])
   @@index([createdByUserId])
   @@index([type])
@@ -288,8 +298,6 @@ model Deal {
   stage          DealStage @relation(fields: [stageId], references: [id])
   amount         Float
   currency       String
-  probability    Int      // Probability to win (0-100)
-  dealScore      Int      @default(0) // Calculated score for the deal
   expectedCloseDate DateTime
   followUpDate   DateTime?
   phases         Json?  // SIA Leistungsphasen array, e.g. [31, 52]
@@ -410,6 +418,7 @@ model TimeEntry {
   startedAt   DateTime
   endedAt     DateTime
   durationMinutes Int
+  phase       String?
   description String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -425,6 +434,8 @@ model RunningTimer {
   account     Account  @relation(fields: [accountId], references: [id])
   taskId      String?
   task        Task?    @relation(fields: [taskId], references: [id])
+  projectId   String?
+  project     Project? @relation(fields: [projectId], references: [id])
   startedAt   DateTime
   description String?
 }
@@ -479,6 +490,7 @@ model Project {
   type            ProjectType   @default(ARCHITECTURE)
   address         String?
   budget          Float?
+  budgetHours     Float?
   currency        String        @default("CHF")
   startDate       DateTime?
   expectedEndDate DateTime?
@@ -499,6 +511,7 @@ model Project {
   suppliers       ProjectSupplier[]
   shares          ProjectShare[]
   timeEntries     TimeEntry[]
+  runningTimers   RunningTimer[]
   tasks           Task[]        @relation("ProjectTasks")
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
@@ -519,6 +532,7 @@ model ProjectPhase {
   startDate         DateTime?
   endDate           DateTime?
   notes             String?
+  budgetHours       Float?
   completedAt       DateTime?
   completedByUserId String?
   completedBy       User?       @relation("PhaseCompletedBy", fields: [completedByUserId], references: [id])

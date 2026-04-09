@@ -7,13 +7,16 @@ import { UpdateProjectDto } from './dto/update-project.dto';
 import { UpdatePhaseDto } from './dto/update-phase.dto';
 
 const DEFAULT_PHASES = [
-  { name: 'Erstkontakt', description: 'Erstberatung und Bedarfsanalyse', order: 1 },
-  { name: 'Konzept', description: 'Konzeptentwicklung und Machbarkeitsstudie', order: 2 },
-  { name: 'Vorprojekt', description: 'Vorprojekt und Voranfrage Baubewilligung', order: 3 },
-  { name: 'Baubewilligung', description: 'Baubewilligungsgesuch und Bewilligung', order: 4 },
-  { name: 'Ausführungsplanung', description: 'Detailplanung und Ausschreibung', order: 5 },
-  { name: 'Bauleitung', description: 'Bau und Bauleitung vor Ort', order: 6 },
-  { name: 'Abschluss', description: 'Übergabe und Abschluss', order: 7 },
+  { name: '10 – Strategische Planung', description: 'Bedürfnisformulierung und Lösungsstrategien', order: 1 },
+  { name: '20 – Vorstudien', description: 'Machbarkeitsstudie und Auswahlverfahren', order: 2 },
+  { name: '31 – Vorprojekt', description: 'Vorprojekt und Voranfrage Baubewilligung', order: 3 },
+  { name: '32 – Bauprojekt', description: 'Bauprojekt und Kostenvoranschlag', order: 4 },
+  { name: '33 – Bewilligungsverfahren', description: 'Baubewilligungsgesuch und Bewilligung', order: 5 },
+  { name: '41 – Ausschreibung', description: 'Ausschreibung und Vergabe', order: 6 },
+  { name: '51 – Ausführungsplanung', description: 'Detailplanung und Ausführungsprojekt', order: 7 },
+  { name: '52 – Ausführung', description: 'Bau und Bauleitung vor Ort', order: 8 },
+  { name: '53 – Inbetriebnahme', description: 'Inbetriebnahme und Abschluss', order: 9 },
+  { name: '61 – Bewirtschaftung', description: 'Betrieb und Unterhalt', order: 10 },
 ];
 
 @Injectable()
@@ -164,6 +167,9 @@ export class ProjectsService {
         type: dto.type,
         address: dto.address,
         budget: dto.budget,
+        budgetHours: (dto as any).budgetHours !== undefined
+          ? (user.role === Role.ADMIN ? (dto as any).budgetHours : undefined)
+          : undefined,
         currency: dto.currency,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         expectedEndDate: dto.expectedEndDate ? new Date(dto.expectedEndDate) : undefined,
@@ -227,6 +233,7 @@ export class ProjectsService {
         notes: dto.notes,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
+        budgetHours: dto.budgetHours !== undefined && user.role === Role.ADMIN ? dto.budgetHours : undefined,
         completedAt: isCompleting ? new Date() : undefined,
         completedByUserId: isCompleting ? user.userId : undefined,
       },

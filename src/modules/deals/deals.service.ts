@@ -28,7 +28,7 @@ export class DealsService {
       lost,
       winRate: total > 0 ? Math.round((won / total) * 100) : 0,
       lossRate: total > 0 ? Math.round((lost / total) * 100) : 0,
-      avgDealSize: avgDeal._avg.amount || 0,
+      avgDealSize: Math.round((avgDeal._avg.amount || 0) * 20) / 20,
       conversionRate,
     };
   }
@@ -159,35 +159,19 @@ export class DealsService {
     return { deleted: true };
   }
 
-  // Helper: get stage weight for scoring
-  private async getStageWeight(stageId: string): Promise<number> {
-      const stage = await this.prisma.dealStage.findUnique({ where: { id: stageId } });
-      if (!stage) return 1;
-      // Example: weight by order (later stages = higher weight)
-      return 1 + (stage.order || 0) * 0.2;
-    }
-
-    // Helper: calculate deal score
-    private async calculateDealScore(amount: number, stageId: string): Promise<number> {
-      const weight = await this.getStageWeight(stageId);
-      return Math.round(amount * weight);
-    }
   async create(body: any, user: any): Promise<Deal> {
     if (!user?.userId) throw new ForbiddenException('Authentication required');
     const ownerUserId = body.ownerUserId || user.userId;
     const createdByUserId = body.createdByUserId || user.userId;
     const amount = body.amount || 0;
     const stageId = body.stageId;
-    const dealScore = await this.calculateDealScore(amount, stageId);
     const deal = await this.prisma.deal.create({
       data: {
         name: body.name,
         accountId: body.accountId,
         stageId,
         amount,
-        currency: 'CHF',
-        probability: 0,
-        dealScore,
+        currency: body.currency || 'CHF',
         expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : new Date(),
         ownerUserId,
         createdByUserId,
@@ -212,15 +196,13 @@ export class DealsService {
 
     const amount = body.amount !== undefined ? body.amount : deal.amount;
     const stageId = body.stageId || deal.stageId;
-    const dealScore = await this.calculateDealScore(amount, stageId);
     const updated = await this.prisma.deal.update({
       where: { id },
       data: {
         name: body.name,
         stageId,
         amount,
-        currency: 'CHF',
-        dealScore,
+        currency: body.currency || deal.currency || 'CHF',
         expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : undefined,
         followUpDate: body.followUpDate !== undefined ? (body.followUpDate ? new Date(body.followUpDate) : null) : undefined,
         phases: body.phases !== undefined ? body.phases : undefined,
@@ -251,11 +233,12 @@ export class DealsService {
   }
 
   async findAll(user: any): Promise<Deal[]> {
-    // Always return all deals, including stage and account info
+    // Always return all deals, including stage, account, and owner info
     return this.prisma.deal.findMany({
       include: {
         stage: true,
         account: true,
+        owner: { select: { id: true, name: true } },
       },
     });
   }
@@ -280,7 +263,10 @@ export class DealsService {
     // 3. Find target stage
     const toStage = await this.prisma.dealStage.findUnique({ where: { id: dto.toStageId } });
     if (!toStage) throw new NotFoundException('Target stage not found');
-    // 4. Transaction: update deal, log activity
+    // 4. Resolve from-stage name for activity log
+    const fromStage = await this.prisma.dealStage.findUnique({ where: { id: deal.stageId } });
+
+    // 5. Transaction: update deal, log activity
     const [updatedDeal, _] = await this.prisma.$transaction([
       this.prisma.deal.update({
         where: { id: dealId },
@@ -293,8 +279,11 @@ export class DealsService {
           entityId: dealId,
           action: 'change_stage',
           payloadJson: {
+            name: deal.name,
             fromStageId: deal.stageId,
             toStageId: dto.toStageId,
+            fromStageName: fromStage?.name || deal.stageId,
+            toStageName: toStage.name,
           },
         },
       }),

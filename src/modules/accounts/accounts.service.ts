@@ -28,7 +28,7 @@ export class AccountsService {
         owner: { select: { id: true, name: true, email: true } },
         contacts: { select: { id: true, name: true, email: true, phone: true, title: true } },
         deals: {
-          select: { id: true, name: true, amount: true, currency: true, probability: true, stage: { select: { id: true, name: true, isWon: true, isLost: true } } },
+          select: { id: true, name: true, amount: true, currency: true, stage: { select: { id: true, name: true, isWon: true, isLost: true } } },
           orderBy: { createdAt: 'desc' },
           take: 10,
         },
@@ -44,6 +44,13 @@ export class AccountsService {
     if (!ownerUserId || !createdByUserId) {
       throw new Error('ownerUserId and createdByUserId are required');
     }
+    // Prevent duplicate account names
+    if (body.name) {
+      const existing = await this.prisma.account.findFirst({ where: { name: body.name } });
+      if (existing) {
+        throw new Error(`Ein Konto mit dem Namen "${body.name}" existiert bereits.`);
+      }
+    }
     const account = await this.prisma.account.create({
       data: {
         name: body.name,
@@ -51,6 +58,11 @@ export class AccountsService {
         ownerUserId,
         createdByUserId,
         address: body.address || null,
+        addressStreet: body.addressStreet || null,
+        addressNumber: body.addressNumber || null,
+        addressZip: body.addressZip || null,
+        addressCity: body.addressCity || null,
+        addressCanton: body.addressCanton || null,
         phone: body.phone || null,
         email: body.email || null,
         notes: body.notes || null,
@@ -70,6 +82,14 @@ export class AccountsService {
     if (!account) throw notFound('Account not found');
     if (user && user.role !== Role.ADMIN && account.ownerUserId !== user.userId && account.createdByUserId !== user.userId) {
       throw forbidden('Access denied');
+    }
+
+    // Prevent duplicate account names on rename
+    if (body.name && body.name !== account.name) {
+      const existing = await this.prisma.account.findFirst({ where: { name: body.name, id: { not: id } } });
+      if (existing) {
+        throw new Error(`Ein Konto mit dem Namen "${body.name}" existiert bereits.`);
+      }
     }
 
     // Prevent type/status change unless user is admin
@@ -93,6 +113,11 @@ export class AccountsService {
         name: body.name,
         type: body.type,
         address: body.address,
+        addressStreet: body.addressStreet,
+        addressNumber: body.addressNumber,
+        addressZip: body.addressZip,
+        addressCity: body.addressCity,
+        addressCanton: body.addressCanton,
         phone: body.phone,
         email: body.email,
         notes: body.notes,

@@ -10,8 +10,8 @@ export class TimeTrackingController {
 
   @UseGuards(JwtAuthGuard)
   @Post('/timer/start')
-  async startTimer(@Request() req: any, @Body() body: { accountId: string; taskId?: string; description?: string }) {
-    return this.timeTrackingService.startTimer(req.user, body.accountId, body.taskId, body.description);
+  async startTimer(@Request() req: any, @Body() body: { accountId: string; taskId?: string; description?: string; projectId?: string }) {
+    return this.timeTrackingService.startTimer(req.user, body.accountId, body.taskId, body.description, body.projectId);
   }
 
   @UseGuards(JwtAuthGuard)

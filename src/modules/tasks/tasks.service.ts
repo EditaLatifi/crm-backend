@@ -90,7 +90,7 @@ export class TasksService {
     if (budgetHours !== undefined) data.budgetHours = budgetHours !== null && budgetHours !== '' ? Number(budgetHours) : null;
     if (body.checklists !== undefined) data.checklists = body.checklists;
     if (Object.keys(data).length === 0) return this.prisma.task.findUnique({ where: { id } });
-    const oldTask = await this.prisma.task.findUnique({ where: { id }, select: { assignedToUserId: true, title: true } });
+    const oldTask = await this.prisma.task.findUnique({ where: { id }, select: { assignedToUserId: true, title: true, status: true, priority: true, description: true, phase: true, specification: true, checklists: true } });
     const updated = await this.prisma.task.update({ where: { id }, data });
     if (
       oldTask &&
@@ -112,6 +112,21 @@ export class TasksService {
           data: { taskId: id, action: 'TITLE_CHANGED', payload: { from: oldTask.title, to: title }, userId: user.userId },
         }));
       }
+      if (status !== undefined && status !== oldTask.status) {
+        historyEntries.push(this.prisma.taskHistory.create({
+          data: { taskId: id, action: 'STATUS_CHANGED', payload: { from: oldTask.status, to: status }, userId: user.userId },
+        }));
+      }
+      if (priority !== undefined && priority !== oldTask.priority) {
+        historyEntries.push(this.prisma.taskHistory.create({
+          data: { taskId: id, action: 'PRIORITY_CHANGED', payload: { from: oldTask.priority, to: priority }, userId: user.userId },
+        }));
+      }
+      if (description !== undefined && description !== (oldTask.description || '')) {
+        historyEntries.push(this.prisma.taskHistory.create({
+          data: { taskId: id, action: 'DESCRIPTION_CHANGED', payload: {}, userId: user.userId },
+        }));
+      }
       if (assignedToUserId !== undefined && assignedToUserId !== oldTask.assignedToUserId) {
         const [fromUser, toUser] = await Promise.all([
           oldTask.assignedToUserId ? this.prisma.user.findUnique({ where: { id: oldTask.assignedToUserId }, select: { name: true } }) : Promise.resolve(null),
@@ -119,6 +134,11 @@ export class TasksService {
         ]);
         historyEntries.push(this.prisma.taskHistory.create({
           data: { taskId: id, action: 'ASSIGNED', payload: { from: fromUser?.name ?? null, to: toUser?.name ?? null }, userId: user.userId },
+        }));
+      }
+      if (body.checklists !== undefined) {
+        historyEntries.push(this.prisma.taskHistory.create({
+          data: { taskId: id, action: 'CHECKLIST_UPDATED', payload: {}, userId: user.userId },
         }));
       }
       await Promise.all(historyEntries);
@@ -245,23 +265,29 @@ async addComment(taskId: string, text: string, user: any) {
   async addTimeEntry(taskId: string, body: any, user: any) {
     try {
       // Allow unauthenticated: fallback to userId from body or 'anonymous'
-      const { startedAt, endedAt, durationMinutes, description, accountId, userId } = body;
+      const { startedAt, endedAt, description, accountId, userId, projectId, phase } = body;
       if (!accountId) {
         throw new Error('accountId is required to add a time entry');
       }
-      const resolvedUserId = (user && user.userId) || userId || 'anonymous';
-      // Ensure durationMinutes is an integer
-      const durationInt = typeof durationMinutes === 'string' ? parseInt(durationMinutes, 10) : durationMinutes;
-      if (isNaN(durationInt)) {
-        throw new Error('durationMinutes must be a number');
+      if (!startedAt || !endedAt) {
+        throw new Error('startedAt and endedAt are required');
       }
+      const resolvedUserId = (user && user.userId) || userId || 'anonymous';
+      const start = new Date(startedAt);
+      const end = new Date(endedAt);
+      if (end.getTime() <= start.getTime()) {
+        throw new Error('Endzeit muss nach Startzeit liegen');
+      }
+      const durationInt = Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
       const entry = await this.prisma.timeEntry.create({
         data: {
           taskId,
           userId: resolvedUserId,
           accountId,
-          startedAt: new Date(startedAt),
-          endedAt: new Date(endedAt),
+          projectId: projectId || undefined,
+          phase: phase || undefined,
+          startedAt: start,
+          endedAt: end,
           durationMinutes: durationInt,
           description,
         },
@@ -288,6 +314,10 @@ async addComment(taskId: string, text: string, user: any) {
           comments: { include: { author: true }, orderBy: { createdAt: 'desc' } },
           history: { include: { user: true }, orderBy: { createdAt: 'desc' } },
           timeEntries: { include: { user: true, account: true, task: true } },
+          project: { select: { id: true, name: true } },
+          account: { select: { id: true, name: true } },
+          assignee: { select: { id: true, name: true } },
+          deal: { select: { id: true, name: true } },
         },
       });
       if (!task) throw new NotFoundException('Task not found');
@@ -306,7 +336,10 @@ async addComment(taskId: string, text: string, user: any) {
   async findAll(user?: any, assignedToMe = false): Promise<any[]> {
     const where: any = {};
     if (assignedToMe && user?.userId) {
-      where.assignedToUserId = user.userId;
+      where.OR = [
+        { assignedToUserId: user.userId },
+        { assigneeIds: { array_contains: [user.userId] } },
+      ];
     }
     return this.prisma.task.findMany({
       where,

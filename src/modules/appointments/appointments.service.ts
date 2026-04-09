@@ -5,9 +5,12 @@ import { PrismaService } from '../../common/prisma.service';
 export class AppointmentsService {
   constructor(private prisma: PrismaService) {}
 
-  async findAll(user: any) {
+  async findAll(user: any, upcoming?: boolean) {
     return this.prisma.appointment.findMany({
-      where: { createdByUserId: user.userId },
+      where: {
+        createdByUserId: user.userId,
+        ...(upcoming && { startAt: { gte: new Date() } }),
+      },
       include: { account: { select: { id: true, name: true } }, contact: { select: { id: true, name: true } }, deal: { select: { id: true, name: true } } },
       orderBy: { startAt: 'asc' },
     });
@@ -32,6 +35,7 @@ export class AppointmentsService {
         accountId: data.accountId || null,
         contactId: data.contactId || null,
         dealId: data.dealId || null,
+        assigneeUserId: data.assigneeUserId || null,
         createdByUserId: user.userId,
       },
     });
@@ -49,6 +53,7 @@ export class AppointmentsService {
         ...(data.accountId !== undefined && { accountId: data.accountId || null }),
         ...(data.contactId !== undefined && { contactId: data.contactId || null }),
         ...(data.dealId !== undefined && { dealId: data.dealId || null }),
+        ...(data.assigneeUserId !== undefined && { assigneeUserId: data.assigneeUserId || null }),
       },
     });
   }

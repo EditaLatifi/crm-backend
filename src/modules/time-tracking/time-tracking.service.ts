@@ -8,7 +8,7 @@ import { PrismaService } from '../../common/prisma.service';
 export class TimeTrackingService {
   constructor(private prisma: PrismaService) {}
 
-  async startTimer(user: any, accountId: string, taskId?: string, description?: string): Promise<RunningTimer> {
+  async startTimer(user: any, accountId: string, taskId?: string, description?: string, projectId?: string): Promise<RunningTimer> {
     const existing = await this.prisma.runningTimer.findUnique({ where: { userId: user.userId } });
     if (existing) throw new BadRequestException('Ein Timer läuft bereits. Stoppe ihn zuerst.');
     return this.prisma.runningTimer.create({
@@ -17,6 +17,7 @@ export class TimeTrackingService {
         accountId,
         taskId: taskId || null,
         description: description || null,
+        projectId: projectId || null,
         startedAt: new Date(),
       },
       include: { account: true, task: true },
@@ -60,6 +61,7 @@ export class TimeTrackingService {
           userId: user.userId,
           accountId: runningTimer.accountId,
           taskId: runningTimer.taskId,
+          projectId: (runningTimer as any).projectId || null,
           startedAt,
           endedAt,
           durationMinutes,

@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
 import { AppointmentsService } from './appointments.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 
@@ -8,8 +8,8 @@ export class AppointmentsController {
   constructor(private service: AppointmentsService) {}
 
   @Get()
-  findAll(@Request() req: any) {
-    return this.service.findAll(req.user);
+  findAll(@Request() req: any, @Query('upcoming') upcoming?: string) {
+    return this.service.findAll(req.user, upcoming === 'true');
   }
 
   @Get(':id')
