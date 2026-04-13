@@ -11,11 +11,12 @@ export class AccountsService {
     private activityLogger: ActivityLoggerService,
   ) {}
 
-  async findAll(user: any, page = 1, pageSize = 20, type?: string): Promise<Account[]> {
+  async findAll(user: any, page = 1, pageSize = 20, type?: string): Promise<any[]> {
     const where: any = {};
     if (type) where.type = type;
     return this.prisma.account.findMany({
       where,
+      include: { owner: { select: { id: true, name: true, email: true } } },
       skip: (page - 1) * pageSize,
       take: Number(pageSize),
     });
