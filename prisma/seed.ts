@@ -42,7 +42,7 @@ async function main() {
     update: {},
     create: {
       email: 'admin@crm.local',
-      passwordHash: await bcrypt.hash('admin123', 10),
+      passwordHash: await bcrypt.hash('edita123', 10),
       name: 'Admin',
       role: 'ADMIN',
     },

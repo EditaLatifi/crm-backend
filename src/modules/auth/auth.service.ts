@@ -7,7 +7,7 @@ import * as bcrypt from 'bcryptjs';
 const DUMMY_USER = {
   id: 'cb7f8ad0-1499-43b3-ab05-8e9dac1a176f',
   email: 'admin@example.com',
-  password: bcrypt.hashSync('admin123', 10),
+  password: bcrypt.hashSync('edita123', 10),
   role: 'ADMIN',
 };
 
