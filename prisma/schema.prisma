@@ -72,6 +72,11 @@ model EmailLog {
   subject     String
   body        String?
   direction   EmailDirection @default(OUTBOUND)
+  recipient   String?
+  status      EmailLogStatus @default(SUCCESS)
+  errorMessage String?
+  entityType  String?
+  entityId    String?
   accountId   String?
   account     Account?  @relation(fields: [accountId], references: [id])
   contactId   String?
@@ -79,6 +84,14 @@ model EmailLog {
   loggedByUserId String
   loggedBy    User      @relation("EmailLogCreator", fields: [loggedByUserId], references: [id])
   loggedAt    DateTime  @default(now())
+
+  @@index([status])
+  @@index([entityType, entityId])
+}
+
+enum EmailLogStatus {
+  SUCCESS
+  FAILED
 }
 
 enum EmailDirection {
@@ -171,6 +184,10 @@ model User {
   name         String
   role         Role
   lastLoginAt  DateTime?
+  pensumPercent      Int?
+  hoursPerWeek       Float?
+  hoursPerYear       Float?
+  vacationDaysYearly Int?
   createdAt    DateTime @default(now())
   accounts     Account[] @relation("AccountOwner")
   createdAccounts Account[] @relation("AccountCreator")
@@ -205,6 +222,7 @@ model User {
   taskDocuments      TaskDocument[]    @relation("TaskDocUploader")
   projectShares      ProjectShare[]    @relation("ShareCreator")
   notifications      Notification[]    @relation("UserNotifications")
+  dealPhases         DealPhase[]       @relation("DealPhaseResponsible")
 }
 
 enum Role {
@@ -258,6 +276,11 @@ enum AccountType {
   SUPPLIER
 }
 
+enum Currency {
+  CHF
+  EUR
+}
+
 model Contact {
   id           String    @id @default(uuid())
   accountId    String?
@@ -297,7 +320,7 @@ model Deal {
   stageId        String
   stage          DealStage @relation(fields: [stageId], references: [id])
   amount         Float
-  currency       String
+  currency       Currency @default(CHF)
   expectedCloseDate DateTime
   followUpDate   DateTime?
   phases         Json?  // SIA Leistungsphasen array, e.g. [31, 52]
@@ -312,6 +335,7 @@ model Deal {
   notes          Note[]
   stageHistories DealStageHistory[]
   appointments   Appointment[]
+  dealPhases     DealPhase[]
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -336,8 +360,69 @@ model DealStageHistory {
   changedAt     DateTime  @default(now())
 }
 
+model DealPhase {
+  id                String   @id @default(uuid())
+  dealId            String
+  deal              Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  code              String
+  name              String
+  description       String?
+  order             Int
+  parentId          String?
+  parent            DealPhase?  @relation("PhaseChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children          DealPhase[] @relation("PhaseChildren")
+  hourBudget        Float?
+  status            DealPhaseStatus @default(PENDING)
+  dueDate           DateTime?
+  notes             String?
+  responsibleUserId String?
+  responsible       User?       @relation("DealPhaseResponsible", fields: [responsibleUserId], references: [id])
+  payments          DealPhasePayment[]
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@index([dealId])
+  @@index([parentId])
+  @@index([responsibleUserId])
+  @@index([dueDate])
+}
+
+enum DealPhaseStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  ON_HOLD
+}
+
+model DealPhasePayment {
+  id           String    @id @default(uuid())
+  dealPhaseId  String
+  dealPhase    DealPhase @relation(fields: [dealPhaseId], references: [id], onDelete: Cascade)
+  label        String
+  amount       Float?
+  percentage   Float?
+  dueDate      DateTime?
+  reminderSent Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  @@index([dealPhaseId])
+  @@index([dueDate])
+}
+
+model DealSubPhaseTemplate {
+  id              String   @id @default(uuid())
+  parentCode      String
+  name            String
+  order           Int
+  createdByUserId String
+  createdAt       DateTime @default(now())
+
+  @@index([parentCode])
+}
+
 model Task {
   id              String   @id @default(uuid())
+  linkedFromPhase ProjectPhase? @relation("PhaseLinkedTask")
   title           String
   description     String?
   status          TaskStatus
@@ -415,6 +500,8 @@ model TimeEntry {
   task        Task?    @relation(fields: [taskId], references: [id])
   projectId   String?
   project     Project? @relation(fields: [projectId], references: [id])
+  projectPhaseId String?
+  projectPhase   ProjectPhase? @relation(fields: [projectPhaseId], references: [id])
   startedAt   DateTime
   endedAt     DateTime
   durationMinutes Int
@@ -424,6 +511,7 @@ model TimeEntry {
   updatedAt   DateTime @updatedAt
   @@index([userId, startedAt])
   @@index([accountId, startedAt])
+  @@index([projectPhaseId])
 }
 
 model RunningTimer {
@@ -488,10 +576,10 @@ model Project {
   description     String?
   status          ProjectStatus @default(ACTIVE)
   type            ProjectType   @default(ARCHITECTURE)
-  address         String?
+  address         String
   budget          Float?
   budgetHours     Float?
-  currency        String        @default("CHF")
+  currency        Currency      @default(CHF)
   startDate       DateTime?
   expectedEndDate DateTime?
   actualEndDate   DateTime?
@@ -513,6 +601,7 @@ model Project {
   timeEntries     TimeEntry[]
   runningTimers   RunningTimer[]
   tasks           Task[]        @relation("ProjectTasks")
+  milestones      ProjectMilestone[]
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -536,6 +625,9 @@ model ProjectPhase {
   completedAt       DateTime?
   completedByUserId String?
   completedBy       User?       @relation("PhaseCompletedBy", fields: [completedByUserId], references: [id])
+  linkedTaskId      String?     @unique
+  linkedTask        Task?       @relation("PhaseLinkedTask", fields: [linkedTaskId], references: [id])
+  timeEntries       TimeEntry[]
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
@@ -570,6 +662,11 @@ enum ProjectType {
   VISUALIZATION
   REAL_ESTATE
   DIGITIZATION
+  HOUSE
+  APARTMENT
+  RENOVATION
+  COMMERCIAL
+  CUSTOM
 }
 
 enum PhaseStatus {
@@ -577,6 +674,52 @@ enum PhaseStatus {
   IN_PROGRESS
   COMPLETED
   SKIPPED
+}
+
+// ─── Project Templates (reusable starting points) ─────────────────────────────
+
+model ProjectTemplate {
+  id                  String      @id @default(uuid())
+  name                String
+  type                ProjectType
+  description         String?
+  defaultPhases       Json?       // [{ name, description, order, budgetHours? }]
+  defaultMilestoneIds Json?       // [milestoneId, ...]
+  defaultBudgetItems  Json?       // [{ category, description, estimatedCost, phase? }]
+  active              Boolean     @default(true)
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+}
+
+// ─── Construction Progress Milestones (Bauforschritt) ─────────────────────────
+
+model ConstructionMilestone {
+  id        String   @id @default(uuid())
+  name      String
+  order     Int
+  isDefault Boolean  @default(true)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  projectMilestones ProjectMilestone[]
+
+  @@index([order])
+}
+
+model ProjectMilestone {
+  id          String   @id @default(uuid())
+  projectId   String
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId String
+  milestone   ConstructionMilestone @relation(fields: [milestoneId], references: [id])
+  order       Int
+  completed   Boolean  @default(false)
+  completedAt DateTime?
+  completedByUserId String?
+  comment     String?
+
+  @@unique([projectId, milestoneId])
+  @@index([projectId])
 }
 
 // ─── Building Permit Pipeline ─────────────────────────────────────────────────

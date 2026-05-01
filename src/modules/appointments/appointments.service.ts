@@ -1,9 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService, private email: EmailService) {}
 
   async findAll(user: any, upcoming?: boolean) {
     return this.prisma.appointment.findMany({
@@ -26,7 +27,7 @@ export class AppointmentsService {
   }
 
   async create(data: any, user: any) {
-    return this.prisma.appointment.create({
+    const appt = await this.prisma.appointment.create({
       data: {
         title: data.title,
         description: data.description || null,
@@ -39,6 +40,34 @@ export class AppointmentsService {
         createdByUserId: user.userId,
       },
     });
+
+    if (appt.assigneeUserId) {
+      const assignee = await this.prisma.user.findUnique({ where: { id: appt.assigneeUserId } });
+      if (assignee?.email) {
+        const link = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/calendar`;
+        this.email.send({
+          to: assignee.email,
+          subject: `Neuer Termin: ${appt.title}`,
+          text: [
+            `Du hast einen neuen Termin.`,
+            ``,
+            `Termin:        ${appt.title}`,
+            `Beginnt:       ${appt.startAt.toISOString().slice(0, 16).replace('T', ' ')}`,
+            `Endet:         ${appt.endAt.toISOString().slice(0, 16).replace('T', ' ')}`,
+            `Verantwortlich: ${assignee.name}`,
+            ``,
+            appt.description ? `Beschreibung:\n${appt.description}` : '',
+            ``,
+            `Link: ${link}`,
+          ].filter(Boolean).join('\n'),
+          accountId: appt.accountId,
+          loggedByUserId: user.userId,
+          entityType: 'Appointment',
+          entityId: appt.id,
+        }).catch(() => {});
+      }
+    }
+    return appt;
   }
 
   async update(id: string, data: any) {

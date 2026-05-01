@@ -1,8 +1,9 @@
-import { IsString, IsOptional, IsEnum, IsNumber, IsDateString } from 'class-validator';
-import { ProjectStatus, ProjectType } from '@prisma/client';
+import { IsString, IsOptional, IsEnum, IsNumber, IsDateString, IsNotEmpty } from 'class-validator';
+import { ProjectStatus, ProjectType, Currency } from '@prisma/client';
 
 export class CreateProjectDto {
   @IsString()
+  @IsNotEmpty()
   name!: string;
 
   @IsOptional()
@@ -17,17 +18,21 @@ export class CreateProjectDto {
   @IsEnum(ProjectType)
   type?: ProjectType;
 
-  @IsOptional()
   @IsString()
-  address?: string;
+  @IsNotEmpty()
+  address!: string;
 
   @IsOptional()
   @IsNumber()
   budget?: number;
 
   @IsOptional()
+  @IsEnum(Currency)
+  currency?: Currency;
+
+  @IsOptional()
   @IsString()
-  currency?: string;
+  templateId?: string;
 
   @IsOptional()
   @IsDateString()

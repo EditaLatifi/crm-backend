@@ -3,6 +3,7 @@ import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/commo
 import { PrismaService } from '../../common/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SupabaseStorageService } from '../documents/supabase-storage.service';
+import { EmailService } from '../email/email.service';
 import { Task, Role } from '@prisma/client';
 
 @Injectable()
@@ -34,6 +35,7 @@ export class TasksService {
     private prisma: PrismaService,
     private notifications: NotificationsService,
     private storage: SupabaseStorageService,
+    private email: EmailService,
   ) {}
 
   // ─── Task Documents ───
@@ -195,17 +197,64 @@ export class TasksService {
     await this.prisma.taskHistory.create({
       data: { taskId: task.id, action: 'CREATED', payload: { title }, userId: createdByUserId },
     });
+
+    if (assignedToUserId) {
+      const assignee = await this.prisma.user.findUnique({ where: { id: assignedToUserId } });
+      const project = task.projectId ? await this.prisma.project.findUnique({ where: { id: task.projectId } }) : null;
+      if (assignee?.email) {
+        const link = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/tasks/${task.id}`;
+        this.email.send({
+          to: assignee.email,
+          subject: `Neue Aufgabe zugewiesen: ${title}`,
+          text: [
+            `Dir wurde eine neue Aufgabe zugewiesen.`,
+            ``,
+            `Aufgabe:     ${title}`,
+            project ? `Projekt:     ${project.name}` : '',
+            `Fälligkeit:  ${task.dueDate ? task.dueDate.toISOString().slice(0, 10) : '—'}`,
+            `Verantwortlich: ${assignee.name}`,
+            ``,
+            description ? `Beschreibung:\n${description}` : '',
+            ``,
+            `Link: ${link}`,
+          ].filter(Boolean).join('\n'),
+          accountId: accountId || null,
+          loggedByUserId: createdByUserId,
+          entityType: 'Task',
+          entityId: task.id,
+        }).catch(() => {});
+      }
+    }
     return task;
   }
 
   async updateStatus(id: string, status: string, user: any) {
-    const old = await this.prisma.task.findUnique({ where: { id }, select: { status: true } });
+    const old = await this.prisma.task.findUnique({
+      where: { id },
+      select: { status: true, linkedFromPhase: { select: { id: true, status: true } } },
+    });
     const updated = await this.prisma.task.update({ where: { id }, data: { status: status as any } });
     if (user?.userId && old && status !== old.status) {
       await this.prisma.taskHistory.create({
         data: { taskId: id, action: 'STATUS_CHANGED', payload: { from: old.status, to: status }, userId: user.userId },
       });
     }
+
+    // Sync linked phase
+    if (old?.linkedFromPhase) {
+      if (status === 'DONE' && old.linkedFromPhase.status !== 'COMPLETED') {
+        await this.prisma.projectPhase.update({
+          where: { id: old.linkedFromPhase.id },
+          data: { status: 'COMPLETED', completedAt: new Date(), completedByUserId: user?.userId || null },
+        });
+      } else if (status !== 'DONE' && old.linkedFromPhase.status === 'COMPLETED') {
+        await this.prisma.projectPhase.update({
+          where: { id: old.linkedFromPhase.id },
+          data: { status: 'IN_PROGRESS', completedAt: null, completedByUserId: null },
+        });
+      }
+    }
+
     return updated;
   }
 
@@ -264,15 +313,33 @@ async addComment(taskId: string, text: string, user: any) {
 
   async addTimeEntry(taskId: string, body: any, user: any) {
     try {
-      // Allow unauthenticated: fallback to userId from body or 'anonymous'
-      const { startedAt, endedAt, description, accountId, userId, projectId, phase } = body;
-      if (!accountId) {
-        throw new Error('accountId is required to add a time entry');
-      }
+      const { startedAt, endedAt, description, userId, projectId, phase } = body;
       if (!startedAt || !endedAt) {
         throw new Error('startedAt and endedAt are required');
       }
       const resolvedUserId = (user && user.userId) || userId || 'anonymous';
+
+      // Auto-resolve accountId from body, then task, then project, then any account
+      let resolvedAccountId: string | undefined = body.accountId;
+      const taskRow = await this.prisma.task.findUnique({
+        where: { id: taskId },
+        select: { accountId: true, projectId: true },
+      });
+      if (!resolvedAccountId) resolvedAccountId = taskRow?.accountId || undefined;
+      const resolvedProjectId = projectId || taskRow?.projectId || undefined;
+      if (!resolvedAccountId && resolvedProjectId) {
+        const proj = await this.prisma.project.findUnique({
+          where: { id: resolvedProjectId },
+          select: { accountId: true },
+        });
+        resolvedAccountId = proj?.accountId || undefined;
+      }
+      if (!resolvedAccountId) {
+        const fallback = await this.prisma.account.findFirst({ select: { id: true } });
+        if (!fallback) throw new Error('Kein Konto verfügbar.');
+        resolvedAccountId = fallback.id;
+      }
+
       const start = new Date(startedAt);
       const end = new Date(endedAt);
       if (end.getTime() <= start.getTime()) {
@@ -283,8 +350,8 @@ async addComment(taskId: string, text: string, user: any) {
         data: {
           taskId,
           userId: resolvedUserId,
-          accountId,
-          projectId: projectId || undefined,
+          accountId: resolvedAccountId,
+          projectId: resolvedProjectId,
           phase: phase || undefined,
           startedAt: start,
           endedAt: end,
@@ -318,6 +385,15 @@ async addComment(taskId: string, text: string, user: any) {
           account: { select: { id: true, name: true } },
           assignee: { select: { id: true, name: true } },
           deal: { select: { id: true, name: true } },
+          linkedFromPhase: {
+            select: {
+              id: true,
+              name: true,
+              status: true,
+              order: true,
+              project: { select: { id: true, name: true } },
+            },
+          },
         },
       });
       if (!task) throw new NotFoundException('Task not found');

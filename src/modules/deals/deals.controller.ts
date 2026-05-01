@@ -1,5 +1,5 @@
 
-import { Controller, Get, Post, Patch, Delete, Param, Request, Body, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Request, Body, UseGuards, UseInterceptors, UploadedFile, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DealsService } from './deals.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -69,6 +69,53 @@ export class DealsController {
     @Request() req: any,
   ) {
     return this.dealsService.changeStage(id, dto, req.user);
+  }
+
+  // ─── Deal Phases ───
+  @Get(':id/phases')
+  async listPhases(@Param('id') id: string, @Request() req: any) {
+    return this.dealsService.listPhases(id, req.user);
+  }
+
+  @Post(':id/phases')
+  async createPhase(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.dealsService.createPhase(id, body, req.user);
+  }
+
+  @Patch('phases/:phaseId')
+  async updatePhase(@Param('phaseId') phaseId: string, @Body() body: any) {
+    return this.dealsService.updatePhase(phaseId, body);
+  }
+
+  @Delete('phases/:phaseId')
+  async deletePhase(@Param('phaseId') phaseId: string) {
+    return this.dealsService.deletePhase(phaseId);
+  }
+
+  @Get('sub-phase-templates')
+  async listSubPhaseTemplates(@Query('parentCode') parentCode?: string) {
+    return this.dealsService.listSubPhaseTemplates(parentCode);
+  }
+
+  // ─── Phase Payment Plans ───
+  @Get('phases/:phaseId/payments')
+  async listPayments(@Param('phaseId') phaseId: string) {
+    return this.dealsService.listPayments(phaseId);
+  }
+
+  @Post('phases/:phaseId/payments')
+  async createPayment(@Param('phaseId') phaseId: string, @Body() body: any) {
+    return this.dealsService.createPayment(phaseId, body);
+  }
+
+  @Patch('payments/:paymentId')
+  async updatePayment(@Param('paymentId') paymentId: string, @Body() body: any) {
+    return this.dealsService.updatePayment(paymentId, body);
+  }
+
+  @Delete('payments/:paymentId')
+  async deletePayment(@Param('paymentId') paymentId: string) {
+    return this.dealsService.deletePayment(paymentId);
   }
 
   @Post()

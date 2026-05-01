@@ -146,6 +146,38 @@ export class VacationService {
   }
 
   /** Get quota for current user's own stats */
+  async allStats(year?: number) {
+    const y = year || new Date().getFullYear();
+    const start = new Date(`${y}-01-01`);
+    const end = new Date(`${y}-12-31`);
+    const [users, requests, quotas] = await Promise.all([
+      this.prisma.user.findMany({ select: { id: true, name: true, email: true, vacationDaysYearly: true } }),
+      this.prisma.vacationRequest.findMany({
+        where: { status: 'APPROVED', startDate: { gte: start, lte: end } },
+        select: { userId: true, days: true },
+      }),
+      this.prisma.vacationQuota.findMany({ where: { year: y } }),
+    ]);
+    const usedByUser: Record<string, number> = {};
+    for (const r of requests) usedByUser[r.userId] = (usedByUser[r.userId] || 0) + r.days;
+    const quotaByUser: Record<string, number> = {};
+    for (const q of quotas) quotaByUser[q.userId] = q.days;
+
+    return users.map(u => {
+      const total = quotaByUser[u.id] ?? u.vacationDaysYearly ?? null;
+      const used = usedByUser[u.id] || 0;
+      return {
+        userId: u.id,
+        name: u.name,
+        email: u.email,
+        year: y,
+        total,
+        used,
+        remaining: total != null ? total - used : null,
+      };
+    });
+  }
+
   async myStats(user: any) {
     const year = new Date().getFullYear();
     const [requests, quota] = await Promise.all([

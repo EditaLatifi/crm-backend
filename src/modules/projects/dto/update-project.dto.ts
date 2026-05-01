@@ -1,5 +1,5 @@
 import { IsString, IsOptional, IsEnum, IsNumber, IsDateString } from 'class-validator';
-import { ProjectStatus, ProjectType } from '@prisma/client';
+import { ProjectStatus, ProjectType, Currency } from '@prisma/client';
 
 export class UpdateProjectDto {
   @IsOptional()
@@ -27,8 +27,8 @@ export class UpdateProjectDto {
   budget?: number;
 
   @IsOptional()
-  @IsString()
-  currency?: string;
+  @IsEnum(Currency)
+  currency?: Currency;
 
   @IsOptional()
   @IsDateString()

@@ -4,9 +4,10 @@ import { TasksController } from './tasks.controller';
 import { CommonModule } from '../../common/common.module';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { DocumentsModule } from '../documents/documents.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [CommonModule, NotificationsModule, DocumentsModule],
+  imports: [CommonModule, NotificationsModule, DocumentsModule, EmailModule],
   providers: [TasksService],
   controllers: [TasksController],
   exports: [TasksService],

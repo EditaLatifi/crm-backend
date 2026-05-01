@@ -1,4 +1,5 @@
-import { IsString, IsNotEmpty, IsNumber, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsNumber, IsOptional, IsEnum } from 'class-validator';
+import { Currency } from '@prisma/client';
 
 export class CreateDealDto {
   @IsString()
@@ -17,7 +18,7 @@ export class CreateDealDto {
   @IsNotEmpty()
   amount!: number;
 
-  @IsString()
-  @IsNotEmpty()
-  currency!: string;
+  @IsEnum(Currency)
+  @IsOptional()
+  currency?: Currency;
 }

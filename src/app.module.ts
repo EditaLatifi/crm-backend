@@ -23,11 +23,15 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { HealthController } from './health.controller';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
+import { ScheduleModule } from '@nestjs/schedule';
+import { EmailModule } from './modules/email/email.module';
 
 @Module({
   imports: [
     ThrottlerModule.forRoot([{ ttl: 60000, limit: 60 }]),
+    ScheduleModule.forRoot(),
     CommonModule,
+    EmailModule,
     AuthModule,
     UsersModule,
     DealsModule,

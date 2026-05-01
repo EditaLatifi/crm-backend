@@ -1,4 +1,5 @@
-import { IsString, IsOptional, IsNumber } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsEnum } from 'class-validator';
+import { Currency } from '@prisma/client';
 
 export class UpdateDealDto {
   @IsString()
@@ -13,7 +14,7 @@ export class UpdateDealDto {
   @IsOptional()
   amount?: number;
 
-  @IsString()
+  @IsEnum(Currency)
   @IsOptional()
-  currency?: string;
+  currency?: Currency;
 }

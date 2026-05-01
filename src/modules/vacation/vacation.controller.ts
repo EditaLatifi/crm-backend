@@ -31,6 +31,12 @@ export class VacationController {
     return this.service.stats(parseInt(year) || new Date().getFullYear());
   }
 
+  /** Admin: per-user vacation stats (total/used/remaining) for all users */
+  @Get('all-stats')
+  allStats(@Query('year') year?: string) {
+    return this.service.allStats(year ? parseInt(year) : undefined);
+  }
+
   /** Admin: get all quotas for a year */
   @Get('quotas')
   getQuotas(@Query('year') year: string) {

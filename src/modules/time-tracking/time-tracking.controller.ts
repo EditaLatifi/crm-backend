@@ -34,6 +34,23 @@ export class TimeTrackingController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Post()
+  async manualEntry(@Request() req: any, @Body() body: any) {
+    return this.timeTrackingService.manualEntry(req.user, body);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('/overview')
+  async getOverview(
+    @Request() req: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('userId') userId?: string,
+  ) {
+    return this.timeTrackingService.getOverview(req.user, { from, to, userId });
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Get()
   async findAll(
     @Request() req: any,

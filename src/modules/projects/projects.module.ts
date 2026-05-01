@@ -4,9 +4,10 @@ import { ProjectsController } from './projects.controller';
 import { CommonModule } from '../../common/common.module';
 import { ActivityModule } from '../activity/activity.module';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [CommonModule, ActivityModule],
+  imports: [CommonModule, ActivityModule, EmailModule],
   providers: [ProjectsService, ActivityLoggerService],
   controllers: [ProjectsController],
   exports: [ProjectsService],

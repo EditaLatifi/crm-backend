@@ -36,6 +36,29 @@ async function main() {
     });
   }
 
+  // Default Bauforschritt construction milestones (idempotent)
+  const defaultMilestones = [
+    'Planung',
+    'Baustelleneinrichtung',
+    'Start Aushub',
+    'Start Rohbau',
+    'Fertig Kellerdecke',
+    'Fertig Erdgeschossdecke',
+    'Fertig Dach',
+    'Fertig Aussenhülle',
+    'Fertig Innenausbau',
+    'Abnahme',
+  ];
+  for (let i = 0; i < defaultMilestones.length; i++) {
+    const name = defaultMilestones[i];
+    const existing = await prisma.constructionMilestone.findFirst({ where: { name } });
+    if (!existing) {
+      await prisma.constructionMilestone.create({
+        data: { name, order: i, isDefault: true, active: true },
+      });
+    }
+  }
+
   // Create admin user
   const admin = await prisma.user.upsert({
     where: { email: 'admin@crm.local' },

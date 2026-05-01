@@ -6,9 +6,10 @@ import { ActivityModule } from '../activity/activity.module';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { DocumentsModule } from '../documents/documents.module';
+import { EmailModule } from '../email/email.module';
 
 @Module({
-  imports: [CommonModule, ActivityModule, NotificationsModule, DocumentsModule],
+  imports: [CommonModule, ActivityModule, NotificationsModule, DocumentsModule, EmailModule],
   providers: [DealsService, ActivityLoggerService],
   controllers: [DealsController],
   exports: [DealsService],

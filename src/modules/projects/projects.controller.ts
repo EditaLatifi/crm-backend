@@ -23,6 +23,42 @@ export class ProjectsController {
     return this.projectsService.getStats();
   }
 
+  @Get('budget-overview')
+  async getBudgetOverview(@Request() req: any) {
+    return this.projectsService.getBudgetOverview(req.user);
+  }
+
+  @Get('templates')
+  async listTemplates() {
+    return this.projectsService.listTemplates();
+  }
+
+  @Post('templates')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async createTemplate(@Body() body: any) {
+    return this.projectsService.createTemplate(body);
+  }
+
+  @Get('templates/:tplId')
+  async getTemplate(@Param('tplId') tplId: string) {
+    return this.projectsService.getTemplate(tplId);
+  }
+
+  @Patch('templates/:tplId')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async updateTemplate(@Param('tplId') tplId: string, @Body() body: any) {
+    return this.projectsService.updateTemplate(tplId, body);
+  }
+
+  @Delete('templates/:tplId')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async deleteTemplate(@Param('tplId') tplId: string) {
+    return this.projectsService.deleteTemplate(tplId);
+  }
+
   @Get()
   async findAll(@Request() req: any) {
     return this.projectsService.findAll(req.user);
@@ -52,6 +88,15 @@ export class ProjectsController {
     return this.projectsService.delete(id, req.user);
   }
 
+  @Post(':id/phases')
+  async createPhase(
+    @Param('id') id: string,
+    @Body() body: any,
+    @Request() req: any,
+  ) {
+    return this.projectsService.createPhase(id, body, req.user);
+  }
+
   @Patch(':id/phases/:phaseId')
   async updatePhase(
     @Param('id') id: string,
@@ -60,6 +105,68 @@ export class ProjectsController {
     @Request() req: any,
   ) {
     return this.projectsService.updatePhase(id, phaseId, dto, req.user);
+  }
+
+  @Delete(':id/phases/:phaseId')
+  async deletePhase(
+    @Param('id') id: string,
+    @Param('phaseId') phaseId: string,
+    @Request() req: any,
+    @Body() body?: { linkedTaskAction?: 'delete' | 'keep' },
+  ) {
+    return this.projectsService.deletePhase(id, phaseId, req.user, body?.linkedTaskAction);
+  }
+
+  // ─── Construction Milestones (master list, admin-managed) ───
+  @Get('milestones/master')
+  async listMilestoneMaster() {
+    return this.projectsService.listMilestoneMaster();
+  }
+
+  @Post('milestones/master')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async createMilestoneMaster(@Body() body: any) {
+    return this.projectsService.createMilestoneMaster(body);
+  }
+
+  @Patch('milestones/master/:id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async updateMilestoneMaster(@Param('id') id: string, @Body() body: any) {
+    return this.projectsService.updateMilestoneMaster(id, body);
+  }
+
+  @Delete('milestones/master/:id')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN)
+  async deleteMilestoneMaster(@Param('id') id: string) {
+    return this.projectsService.deleteMilestoneMaster(id);
+  }
+
+  // ─── Per-project milestones (Bauforschritt timeline) ───
+  @Get(':id/milestones')
+  async listProjectMilestones(@Param('id') id: string, @Request() req: any) {
+    return this.projectsService.listProjectMilestones(id, req.user);
+  }
+
+  @Post(':id/milestones')
+  async setProjectMilestones(
+    @Param('id') id: string,
+    @Body() body: { milestoneIds: string[] },
+    @Request() req: any,
+  ) {
+    return this.projectsService.setProjectMilestones(id, body.milestoneIds, req.user);
+  }
+
+  @Patch(':id/milestones/:milestoneRowId')
+  async toggleProjectMilestone(
+    @Param('id') id: string,
+    @Param('milestoneRowId') milestoneRowId: string,
+    @Body() body: { completed: boolean; comment?: string },
+    @Request() req: any,
+  ) {
+    return this.projectsService.toggleProjectMilestone(id, milestoneRowId, body.completed, req.user, body.comment);
   }
 
   @Post(':id/members')

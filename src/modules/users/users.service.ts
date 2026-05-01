@@ -24,12 +24,26 @@ export class UsersService {
 
   async findAll() {
     return this.prisma.user.findMany({
-      select: { id: true, email: true, name: true, role: true, createdAt: true, lastLoginAt: true },
+      select: {
+        id: true, email: true, name: true, role: true, createdAt: true, lastLoginAt: true,
+        pensumPercent: true, hoursPerWeek: true, hoursPerYear: true, vacationDaysYearly: true,
+      },
       orderBy: { name: 'asc' },
     });
   }
 
-  async updateUser(id: string, data: { role?: string; name?: string; email?: string }) {
+  async updateUser(
+    id: string,
+    data: {
+      role?: string;
+      name?: string;
+      email?: string;
+      pensumPercent?: number | null;
+      hoursPerWeek?: number | null;
+      hoursPerYear?: number | null;
+      vacationDaysYearly?: number | null;
+    },
+  ) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
     return this.prisma.user.update({
@@ -38,8 +52,15 @@ export class UsersService {
         ...(data.role !== undefined && { role: data.role as Role }),
         ...(data.name !== undefined && { name: data.name }),
         ...(data.email !== undefined && { email: data.email }),
+        ...(data.pensumPercent !== undefined && { pensumPercent: data.pensumPercent }),
+        ...(data.hoursPerWeek !== undefined && { hoursPerWeek: data.hoursPerWeek }),
+        ...(data.hoursPerYear !== undefined && { hoursPerYear: data.hoursPerYear }),
+        ...(data.vacationDaysYearly !== undefined && { vacationDaysYearly: data.vacationDaysYearly }),
       },
-      select: { id: true, email: true, name: true, role: true, createdAt: true, lastLoginAt: true },
+      select: {
+        id: true, email: true, name: true, role: true, createdAt: true, lastLoginAt: true,
+        pensumPercent: true, hoursPerWeek: true, hoursPerYear: true, vacationDaysYearly: true,
+      },
     });
   }
 

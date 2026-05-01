@@ -5,6 +5,7 @@ import { PrismaService } from '../../common/prisma.service';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SupabaseStorageService } from '../documents/supabase-storage.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class DealsService {
@@ -13,6 +14,7 @@ export class DealsService {
     private activityLogger: ActivityLoggerService,
     private notifications: NotificationsService,
     private storage: SupabaseStorageService,
+    private email: EmailService,
   ) {}
 
   // Analytics
@@ -171,7 +173,7 @@ export class DealsService {
         accountId: body.accountId,
         stageId,
         amount,
-        currency: body.currency || 'CHF',
+        currency: (body.currency === 'EUR' ? 'EUR' : 'CHF'),
         expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : new Date(),
         ownerUserId,
         createdByUserId,
@@ -179,6 +181,33 @@ export class DealsService {
       },
     });
     await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: deal.id, action: 'CREATE', payloadJson: { name: deal.name } });
+
+    const owner = ownerUserId ? await this.prisma.user.findUnique({ where: { id: ownerUserId } }) : null;
+    const creator = await this.prisma.user.findUnique({ where: { id: createdByUserId } });
+    const account = deal.accountId ? await this.prisma.account.findUnique({ where: { id: deal.accountId } }) : null;
+    const recipients = Array.from(new Set([owner?.email, creator?.email].filter(Boolean) as string[]));
+    if (recipients.length > 0) {
+      const link = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/deals/${deal.id}`;
+      this.email.send({
+        to: recipients,
+        subject: `Neuer Deal erstellt: ${deal.name}`,
+        text: [
+          `Ein neuer Deal wurde erstellt.`,
+          ``,
+          `Deal:        ${deal.name}`,
+          `Konto:       ${account?.name || '—'}`,
+          `Betrag:      ${deal.amount} ${deal.currency}`,
+          `Fälligkeit:  ${deal.expectedCloseDate.toISOString().slice(0, 10)}`,
+          `Verantwortlich: ${owner?.name || creator?.name || '—'}`,
+          ``,
+          `Link: ${link}`,
+        ].join('\n'),
+        accountId: deal.accountId,
+        loggedByUserId: createdByUserId,
+        entityType: 'Deal',
+        entityId: deal.id,
+      }).catch(() => {});
+    }
     return deal;
   }
 
@@ -202,7 +231,7 @@ export class DealsService {
         name: body.name,
         stageId,
         amount,
-        currency: body.currency || deal.currency || 'CHF',
+        currency: body.currency ? (body.currency === 'EUR' ? 'EUR' : 'CHF') : undefined,
         expectedCloseDate: body.expectedCloseDate ? new Date(body.expectedCloseDate) : undefined,
         followUpDate: body.followUpDate !== undefined ? (body.followUpDate ? new Date(body.followUpDate) : null) : undefined,
         phases: body.phases !== undefined ? body.phases : undefined,
@@ -250,6 +279,132 @@ export class DealsService {
     });
     if (!deal) throw new NotFoundException('Deal not found');
     return deal;
+  }
+
+  // ─── Deal Phases (with sub-phases) ───
+  async listPhases(dealId: string, user?: any) {
+    const phases = await this.prisma.dealPhase.findMany({
+      where: { dealId },
+      include: {
+        children: {
+          include: {
+            payments: true,
+            responsible: { select: { id: true, name: true } },
+          },
+          orderBy: { order: 'asc' },
+        },
+        payments: true,
+        responsible: { select: { id: true, name: true } },
+      },
+      orderBy: { order: 'asc' },
+    });
+    if (user?.role !== Role.ADMIN) {
+      return phases.map((p: any) => ({
+        ...p,
+        payments: [],
+        children: (p.children || []).map((c: any) => ({ ...c, payments: [] })),
+      }));
+    }
+    return phases;
+  }
+
+  async createPhase(dealId: string, body: any, user: any) {
+    const order = body.order ?? (await this.prisma.dealPhase.count({ where: { dealId, parentId: body.parentId || null } }));
+    const phase = await this.prisma.dealPhase.create({
+      data: {
+        dealId,
+        code: body.code || '',
+        name: body.name,
+        description: body.description ?? null,
+        order,
+        parentId: body.parentId || null,
+        hourBudget: body.hourBudget ?? null,
+        status: body.status ?? 'PENDING',
+        dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        notes: body.notes ?? null,
+        responsibleUserId: body.responsibleUserId ?? null,
+      },
+    });
+    if (body.parentId) {
+      const parent = await this.prisma.dealPhase.findUnique({ where: { id: body.parentId } });
+      if (parent) {
+        await this.prisma.dealSubPhaseTemplate.create({
+          data: {
+            parentCode: parent.code,
+            name: phase.name,
+            order: phase.order,
+            createdByUserId: user.userId,
+          },
+        }).catch(() => {});
+      }
+    }
+    return phase;
+  }
+
+  async updatePhase(phaseId: string, body: any) {
+    return this.prisma.dealPhase.update({
+      where: { id: phaseId },
+      data: {
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.code !== undefined && { code: body.code }),
+        ...(body.order !== undefined && { order: body.order }),
+        ...(body.hourBudget !== undefined && { hourBudget: body.hourBudget }),
+        ...(body.description !== undefined && { description: body.description }),
+        ...(body.status !== undefined && { status: body.status }),
+        ...(body.dueDate !== undefined && { dueDate: body.dueDate ? new Date(body.dueDate) : null }),
+        ...(body.notes !== undefined && { notes: body.notes }),
+        ...(body.responsibleUserId !== undefined && { responsibleUserId: body.responsibleUserId || null }),
+      },
+    });
+  }
+
+  async deletePhase(phaseId: string) {
+    await this.prisma.dealPhase.delete({ where: { id: phaseId } });
+    return { deleted: true };
+  }
+
+  async listSubPhaseTemplates(parentCode?: string) {
+    return this.prisma.dealSubPhaseTemplate.findMany({
+      where: parentCode ? { parentCode } : {},
+      orderBy: [{ parentCode: 'asc' }, { order: 'asc' }],
+    });
+  }
+
+  // ─── Phase Payment Plan ───
+  async listPayments(phaseId: string) {
+    return this.prisma.dealPhasePayment.findMany({
+      where: { dealPhaseId: phaseId },
+      orderBy: { dueDate: 'asc' },
+    });
+  }
+
+  async createPayment(phaseId: string, body: any) {
+    return this.prisma.dealPhasePayment.create({
+      data: {
+        dealPhaseId: phaseId,
+        label: body.label,
+        amount: body.amount ?? null,
+        percentage: body.percentage ?? null,
+        dueDate: body.dueDate ? new Date(body.dueDate) : null,
+      },
+    });
+  }
+
+  async updatePayment(paymentId: string, body: any) {
+    return this.prisma.dealPhasePayment.update({
+      where: { id: paymentId },
+      data: {
+        ...(body.label !== undefined && { label: body.label }),
+        ...(body.amount !== undefined && { amount: body.amount }),
+        ...(body.percentage !== undefined && { percentage: body.percentage }),
+        ...(body.dueDate !== undefined && { dueDate: body.dueDate ? new Date(body.dueDate) : null }),
+      },
+    });
+  }
+
+  async deletePayment(paymentId: string) {
+    await this.prisma.dealPhasePayment.delete({ where: { id: paymentId } });
+    return { deleted: true };
   }
 
   async changeStage(dealId: string, dto: { toStageId: string }, user: any) {
