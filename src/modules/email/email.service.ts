@@ -44,14 +44,15 @@ export class EmailService {
     this.enabled = !!host && !!user && !!pass;
 
     if (this.enabled) {
-      this.transporter = nodemailer.createTransport({
+      const smtpOptions: any = {
         host,
         port,
         secure: port === 465,
         auth: { user, pass },
         family: 4, // force IPv4 — some networks can't route IPv6 to SMTP
         tls: { rejectUnauthorized: false },
-      });
+      };
+      this.transporter = nodemailer.createTransport(smtpOptions);
     } else {
       this.logger.warn('SMTP not configured. Emails will be logged only.');
     }
