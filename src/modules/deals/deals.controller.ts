@@ -157,12 +157,21 @@ export class DealsController {
   }
 
   @Get()
-  async findAll(@Request() req: any): Promise<any[]> {
+  async findAll(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+  ): Promise<any> {
     try {
-      const result = await this.dealsService.findAll(req.user);
-      return Array.isArray(result) ? result : [];
+      return await this.dealsService.findAll(
+        req.user,
+        page ? Number(page) : 1,
+        pageSize ? Number(pageSize) : 50,
+        search,
+      );
     } catch (e) {
-      return [];
+      return { data: [], total: 0, page: 1, pageSize: 50 };
     }
   }
 

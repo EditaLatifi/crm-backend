@@ -11,7 +11,7 @@ export class AccountsService {
     private activityLogger: ActivityLoggerService,
   ) {}
 
-  async findAll(user: any, page = 1, pageSize = 20, type?: string): Promise<any[]> {
+  async findAll(user: any, page = 1, pageSize = 100, type?: string): Promise<any[]> {
     const where: any = {};
     if (type) where.type = type;
     return this.prisma.account.findMany({

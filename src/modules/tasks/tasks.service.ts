@@ -409,7 +409,7 @@ async addComment(taskId: string, text: string, user: any) {
     }
   }
 
-  async findAll(user?: any, assignedToMe = false): Promise<any[]> {
+  async findAll(user?: any, assignedToMe = false, page = 1, pageSize = 50, search?: string): Promise<{ data: any[]; total: number; page: number; pageSize: number }> {
     const where: any = {};
     // Mitarbeiter/Extern/USER: only see own/assigned tasks; Admin/Projektleiter see all
     const isRestricted = user?.role && user.role !== 'ADMIN' && user.role !== 'PROJEKTLEITER';
@@ -420,16 +420,31 @@ async addComment(taskId: string, text: string, user: any) {
         { createdByUserId: user.userId },
       ];
     }
-    return this.prisma.task.findMany({
-      where,
-      include: {
-        assignee: { select: { id: true, name: true, email: true } },
-        deal: { select: { id: true, name: true, phases: true, phaseBudgets: true } },
-        project: { select: { id: true, name: true } },
-        timeEntries: { select: { durationMinutes: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+    if (search) {
+      const searchFilter = { title: { contains: search, mode: 'insensitive' as const } };
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, searchFilter];
+        delete where.OR;
+      } else {
+        Object.assign(where, searchFilter);
+      }
+    }
+    const [data, total] = await Promise.all([
+      this.prisma.task.findMany({
+        where,
+        include: {
+          assignee: { select: { id: true, name: true, email: true } },
+          deal: { select: { id: true, name: true } },
+          project: { select: { id: true, name: true } },
+          account: { select: { id: true, name: true } },
+        },
+        skip: (page - 1) * pageSize,
+        take: Number(pageSize),
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.task.count({ where }),
+    ]);
+    return { data, total, page, pageSize };
   }
 
   async findById(id: string, _user?: any): Promise<Task> {

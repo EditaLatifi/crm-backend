@@ -88,8 +88,20 @@ export class TasksController {
   }
 
   @Get()
-  async findAll(@Request() req: any, @Query('assignedToMe') assignedToMe?: string): Promise<any[]> {
-    return this.tasksService.findAll(req.user, assignedToMe === 'true');
+  async findAll(
+    @Request() req: any,
+    @Query('assignedToMe') assignedToMe?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+  ): Promise<any> {
+    return this.tasksService.findAll(
+      req.user,
+      assignedToMe === 'true',
+      page ? Number(page) : 1,
+      pageSize ? Number(pageSize) : 50,
+      search,
+    );
   }
 
   @Get(':id')

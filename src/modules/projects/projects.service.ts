@@ -118,10 +118,10 @@ export class ProjectsService {
     return { totals: { budget: total, estimated: totalEstimated, actual: totalActual }, byType, projects: enriched };
   }
 
-  async findAll(user: any) {
+  async findAll(user: any, page = 1, pageSize = 50, search?: string) {
     // Admin + Projektleiter see all projects; Mitarbeiter/Extern only see assigned
     const canSeeAll = user.role === Role.ADMIN || user.role === 'PROJEKTLEITER';
-    const where = canSeeAll
+    const where: any = canSeeAll
       ? {}
       : {
           OR: [
@@ -131,21 +131,47 @@ export class ProjectsService {
           ],
         };
 
-    const projects = await this.prisma.project.findMany({
-      where,
-      include: {
-        account: { select: { id: true, name: true } },
-        deal: { select: { id: true, name: true } },
-        owner: { select: { id: true, name: true, email: true } },
-        phases: { orderBy: { order: 'asc' } },
-        members: {
-          include: { user: { select: { id: true, name: true, email: true } } },
+    if (search) {
+      const searchFilter = {
+        OR: [
+          { name: { contains: search, mode: 'insensitive' as const } },
+          { address: { contains: search, mode: 'insensitive' as const } },
+        ],
+      };
+      if (where.OR) {
+        where.AND = [{ OR: where.OR }, searchFilter];
+        delete where.OR;
+      } else {
+        Object.assign(where, searchFilter);
+      }
+    }
+
+    const [projects, total] = await Promise.all([
+      this.prisma.project.findMany({
+        where,
+        include: {
+          account: { select: { id: true, name: true } },
+          deal: { select: { id: true, name: true } },
+          owner: { select: { id: true, name: true, email: true } },
+          phases: { select: { id: true, name: true, status: true, order: true }, orderBy: { order: 'asc' } },
+          members: {
+            include: { user: { select: { id: true, name: true, email: true } } },
+            take: 5,
+          },
+          _count: { select: { members: true, phases: true } },
         },
-        _count: { select: { members: true, phases: true } },
-      },
-      orderBy: { updatedAt: 'desc' },
-    });
-    return projects.map((p: any) => this.redactProject(p, user));
+        skip: (page - 1) * pageSize,
+        take: Number(pageSize),
+        orderBy: { updatedAt: 'desc' },
+      }),
+      this.prisma.project.count({ where }),
+    ]);
+    return {
+      data: projects.map((p: any) => this.redactProject(p, user)),
+      total,
+      page,
+      pageSize,
+    };
   }
 
   async findById(id: string, user: any) {

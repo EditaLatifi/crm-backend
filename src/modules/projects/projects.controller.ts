@@ -1,6 +1,6 @@
 import {
   Controller, Get, Post, Patch, Delete,
-  Param, Body, Request, UseGuards,
+  Param, Body, Request, UseGuards, Query,
 } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -60,8 +60,18 @@ export class ProjectsController {
   }
 
   @Get()
-  async findAll(@Request() req: any) {
-    return this.projectsService.findAll(req.user);
+  async findAll(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+  ) {
+    return this.projectsService.findAll(
+      req.user,
+      page ? Number(page) : 1,
+      pageSize ? Number(pageSize) : 50,
+      search,
+    );
   }
 
   @Get(':id')

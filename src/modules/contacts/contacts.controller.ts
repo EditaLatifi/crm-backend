@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards, Request, Delete, Body, Post, Patch } from '@nestjs/common';
+import { Controller, Get, Param, UseGuards, Request, Delete, Body, Post, Patch, Query } from '@nestjs/common';
 import { Roles } from '../../common/decorators/role.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
 import { Role } from '@prisma/client';
@@ -11,8 +11,18 @@ export class ContactsController {
   constructor(private readonly contactsService: ContactsService) {}
 
   @Get()
-  async findAll(@Request() req: any): Promise<any[]> {
-    return this.contactsService.findAll(req.user);
+  async findAll(
+    @Request() req: any,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+    @Query('search') search?: string,
+  ): Promise<any> {
+    return this.contactsService.findAll(
+      req.user,
+      page ? Number(page) : 1,
+      pageSize ? Number(pageSize) : 50,
+      search,
+    );
   }
 
   @Get(':id')

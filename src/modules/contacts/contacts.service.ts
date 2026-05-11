@@ -24,9 +24,26 @@ export class ContactsService {
     }
   }
 
-  async findAll(user: any): Promise<Contact[]> {
-    // All authenticated users can see all contacts
-    return this.prisma.contact.findMany();
+  async findAll(user: any, page = 1, pageSize = 50, search?: string): Promise<{ data: Contact[]; total: number; page: number; pageSize: number }> {
+    const where: any = {};
+    if (search) {
+      where.OR = [
+        { name: { contains: search, mode: 'insensitive' } },
+        { email: { contains: search, mode: 'insensitive' } },
+        { phone: { contains: search, mode: 'insensitive' } },
+      ];
+    }
+    const [data, total] = await Promise.all([
+      this.prisma.contact.findMany({
+        where,
+        include: { account: { select: { id: true, name: true } } },
+        skip: (page - 1) * pageSize,
+        take: Number(pageSize),
+        orderBy: { createdAt: 'desc' },
+      }),
+      this.prisma.contact.count({ where }),
+    ]);
+    return { data, total, page, pageSize };
   }
 
   async findById(id: string, user: any): Promise<Contact> {
