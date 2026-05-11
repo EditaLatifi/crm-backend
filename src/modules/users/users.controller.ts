@@ -1,4 +1,4 @@
-import { Controller, Get, Param, UseGuards, Patch, Delete, Body, Request, Post, HttpException, HttpStatus } from '@nestjs/common';
+import { Controller, Get, Param, Query, UseGuards, Patch, Delete, Body, Request, Post, HttpException, HttpStatus } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 
@@ -44,6 +44,12 @@ export class UsersController {
     const { newPassword } = body;
     if (!newPassword || newPassword.length < 6) throw new HttpException('Passwort muss mindestens 6 Zeichen lang sein', HttpStatus.BAD_REQUEST);
     return this.usersService.resetPassword(id, newPassword);
+  }
+
+  @Get(':id/auslastung')
+  @UseGuards(JwtAuthGuard)
+  async getAuslastung(@Param('id') id: string, @Query('year') year?: string) {
+    return this.usersService.getAuslastung(id, year ? parseInt(year) : undefined);
   }
 
   @Post('me')

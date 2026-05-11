@@ -135,11 +135,41 @@ export class TimeTrackingService {
       console.warn(`[TimeTracking] Hohe Stundenerfassung: ${minutes} Minuten (${(minutes / 60).toFixed(1)}h) für User ${userId}`);
     }
 
+    // ── Kontingent-Check: validate against phase budget before saving ──
+    let kontingentWarning: string | null = null;
+    if (body.projectPhaseId) {
+      const phase = await this.prisma.projectPhase.findUnique({
+        where: { id: body.projectPhaseId },
+        include: { timeEntries: { select: { durationMinutes: true } } },
+      });
+      if (phase?.budgetHours && phase.budgetHours > 0) {
+        const usedMinutes = phase.timeEntries.reduce((s, e) => s + e.durationMinutes, 0);
+        const usedHours = usedMinutes / 60;
+        const budgetHours = phase.budgetHours;
+        const afterBooking = usedHours + (minutes / 60);
+        const usagePercent = (afterBooking / budgetHours) * 100;
+
+        if (afterBooking > budgetHours) {
+          const overPercent = ((afterBooking - budgetHours) / budgetHours) * 100;
+          if (overPercent > 10 && user.role !== Role.ADMIN && user.role !== 'PROJEKTLEITER') {
+            throw new BadRequestException(
+              `Kontingent überschritten um ${overPercent.toFixed(1)}%. ` +
+              `Budget: ${budgetHours}h, Verbraucht: ${usedHours.toFixed(1)}h, Diese Buchung: ${(minutes / 60).toFixed(1)}h. ` +
+              `Genehmigung durch Admin/Projektleiter erforderlich.`
+            );
+          }
+          kontingentWarning = `Kontingent wird überschritten. Verbleibend vor Buchung: ${(budgetHours - usedHours).toFixed(1)}h`;
+        } else if (usagePercent >= 80) {
+          kontingentWarning = `Achtung: ${usagePercent.toFixed(0)}% des Kontingents verbraucht (${afterBooking.toFixed(1)}h / ${budgetHours}h)`;
+        }
+      }
+    }
+
     const startedAt = body.date ? new Date(body.date) : new Date();
     startedAt.setHours(9, 0, 0, 0);
     const endedAt = new Date(startedAt.getTime() + minutes * 60000);
 
-    return this.prisma.timeEntry.create({
+    const entry = await this.prisma.timeEntry.create({
       data: {
         userId,
         accountId,
@@ -157,6 +187,10 @@ export class TimeTrackingService {
         projectPhase: { select: { id: true, name: true } },
       },
     });
+    if (kontingentWarning) {
+      return { ...entry, kontingentWarning } as any;
+    }
+    return entry;
   }
 
   async discardTimer(user: any): Promise<{ discarded: boolean }> {

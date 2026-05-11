@@ -383,6 +383,17 @@ export class DealsService {
   }
 
   async createPayment(phaseId: string, body: any) {
+    // Validate percentage sum doesn't exceed 100%
+    if (body.percentage != null) {
+      const existing = await this.prisma.dealPhasePayment.findMany({
+        where: { dealPhaseId: phaseId },
+        select: { percentage: true },
+      });
+      const currentSum = existing.reduce((s, p) => s + (p.percentage || 0), 0);
+      if (currentSum + body.percentage > 100) {
+        throw new ForbiddenException(`Prozentsumme würde ${(currentSum + body.percentage).toFixed(1)}% ergeben. Maximum: 100%.`);
+      }
+    }
     return this.prisma.dealPhasePayment.create({
       data: {
         dealPhaseId: phaseId,

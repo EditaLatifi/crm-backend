@@ -42,4 +42,17 @@ export class SearchController {
 
     return { accounts, contacts, deals, tasks };
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Get('counts')
+  async counts() {
+    const [accounts, contacts, deals, projects, tasks] = await Promise.all([
+      this.prisma.account.count(),
+      this.prisma.contact.count(),
+      this.prisma.deal.count(),
+      this.prisma.project.count(),
+      this.prisma.task.count({ where: { status: { not: 'DONE' } } }),
+    ]);
+    return { accounts, contacts, deals, projects, tasks };
+  }
 }

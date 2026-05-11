@@ -122,4 +122,52 @@ export class UsersService {
     await this.prisma.user.update({ where: { id }, data: { passwordHash } });
     return { success: true };
   }
+
+  /** Calculate user utilization based on Pensum and logged hours */
+  async getAuslastung(userId: string, year?: number) {
+    const y = year || new Date().getFullYear();
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, pensumPercent: true, hoursPerWeek: true, hoursPerYear: true },
+    });
+    if (!user) throw new NotFoundException('User not found');
+
+    const start = new Date(`${y}-01-01`);
+    const end = new Date(`${y}-12-31T23:59:59`);
+
+    const entries = await this.prisma.timeEntry.aggregate({
+      where: { userId, startedAt: { gte: start, lte: end } },
+      _sum: { durationMinutes: true },
+    });
+
+    const loggedMinutes = entries._sum.durationMinutes || 0;
+    const loggedHours = Math.round(loggedMinutes / 60 * 10) / 10;
+    const targetHours = user.hoursPerYear || (42 * (user.pensumPercent || 100) / 100 * 52);
+    const utilizationPercent = targetHours > 0 ? Math.round((loggedHours / targetHours) * 1000) / 10 : 0;
+
+    // Monthly breakdown
+    const monthlyEntries = await this.prisma.timeEntry.findMany({
+      where: { userId, startedAt: { gte: start, lte: end } },
+      select: { startedAt: true, durationMinutes: true },
+    });
+    const byMonth: Record<number, number> = {};
+    for (const e of monthlyEntries) {
+      const m = new Date(e.startedAt).getMonth();
+      byMonth[m] = (byMonth[m] || 0) + e.durationMinutes;
+    }
+
+    return {
+      userId: user.id,
+      name: user.name,
+      year: y,
+      pensumPercent: user.pensumPercent,
+      targetHoursYear: Math.round(targetHours * 10) / 10,
+      loggedHours,
+      remainingHours: Math.round((targetHours - loggedHours) * 10) / 10,
+      utilizationPercent,
+      byMonth: Object.fromEntries(
+        Array.from({ length: 12 }, (_, i) => [i, Math.round((byMonth[i] || 0) / 60 * 10) / 10])
+      ),
+    };
+  }
 }
