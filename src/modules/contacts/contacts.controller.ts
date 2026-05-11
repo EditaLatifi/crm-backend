@@ -58,4 +58,20 @@ export class ContactsController {
   async create(@Body() body: any, @Request() req: any): Promise<any> {
     return this.contactsService.createContact(body, req.user);
   }
+
+  // ─── Contact Notes (threaded) ───
+  @Get(':id/notes')
+  async getNotes(@Param('id') id: string) {
+    return this.contactsService.getNotes(id);
+  }
+
+  @Post(':id/notes')
+  async addNote(@Param('id') id: string, @Body('content') content: string, @Request() req: any) {
+    return this.contactsService.addNote(id, content, req.user);
+  }
+
+  @Delete('notes/:noteId')
+  async deleteNote(@Param('noteId') noteId: string) {
+    return this.contactsService.deleteNote(noteId);
+  }
 }

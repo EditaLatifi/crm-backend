@@ -2,12 +2,14 @@ import { Injectable, ForbiddenException, NotFoundException, Inject, forwardRef }
 import { PrismaService } from '../../common/prisma.service';
 import { Contact, Role } from '@prisma/client';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ContactsService {
   constructor(
     private prisma: PrismaService,
     private activityLogger: ActivityLoggerService,
+    private notifications: NotificationsService,
   ) {}
 
   async deleteContact(id: string, user?: any): Promise<void> {
@@ -123,5 +125,50 @@ export class ContactsService {
       });
     }
     return contact;
+  }
+
+  // ─── Contact Notes (threaded) ───
+  async getNotes(contactId: string) {
+    return (this.prisma.note as any).findMany({
+      where: { contactId },
+      include: { createdBy: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async addNote(contactId: string, content: string, user: any) {
+    const contact = await this.prisma.contact.findUnique({
+      where: { id: contactId },
+      select: { name: true, accountId: true },
+    });
+    if (!contact) throw new NotFoundException('Kontakt nicht gefunden');
+
+    const note = await (this.prisma.note as any).create({
+      data: { contactId, content, createdByUserId: user.userId },
+      include: { createdBy: { select: { id: true, name: true, email: true } } },
+    });
+
+    // Notify account owner if contact belongs to an account
+    if (contact.accountId) {
+      const account = await this.prisma.account.findUnique({
+        where: { id: contact.accountId },
+        select: { ownerUserId: true },
+      });
+      if (account?.ownerUserId && account.ownerUserId !== user.userId) {
+        this.notifications.createForUser(
+          account.ownerUserId, 'TASK_COMMENT',
+          'Neue Notiz',
+          `${note.createdBy?.name || 'Jemand'} hat eine Notiz zu "${contact.name}" hinzugefügt`,
+          'Contact', contactId, `/contacts/${contactId}`,
+        ).catch(() => {});
+      }
+    }
+
+    return note;
+  }
+
+  async deleteNote(noteId: string) {
+    await this.prisma.note.delete({ where: { id: noteId } });
+    return { deleted: true };
   }
 }

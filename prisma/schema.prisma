@@ -185,12 +185,19 @@ model Attachment {
 
 model Note {
   id              String   @id @default(uuid())
-  dealId          String
-  deal            Deal     @relation(fields: [dealId], references: [id])
+  dealId          String?
+  deal            Deal?    @relation(fields: [dealId], references: [id])
+  contactId       String?
+  contact         Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  accountId       String?
+  account         Account? @relation(fields: [accountId], references: [id], onDelete: Cascade)
   content         String
   createdByUserId String
   createdBy       User     @relation("createdBy", fields: [createdByUserId], references: [id])
   createdAt       DateTime @default(now())
+
+  @@index([contactId])
+  @@index([accountId])
 }
 
 model Comment {
@@ -317,6 +324,7 @@ model Account {
   createdAt          DateTime             @default(now())
   updatedAt          DateTime             @updatedAt
   dailyTimeByAccount DailyTimeByAccount[]
+  noteThreads        Note[]
 
   @@unique([name])
   @@index([ownerUserId])
@@ -352,6 +360,7 @@ model Contact {
   appointments Appointment[]
   emailLogs    EmailLog[]
   dealContacts DealContact[]
+  noteThreads  Note[]
 
   @@index([accountId])
   @@index([followUpDate])
