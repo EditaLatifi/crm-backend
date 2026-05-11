@@ -1,5 +1,5 @@
 
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, Query } from '@nestjs/common';
 import { TimeTrackingService } from './time-tracking.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { PaginationDto } from '../../common/pagination/pagination.dto';
@@ -67,5 +67,17 @@ export class TimeTrackingController {
   @Get(':id')
   async findById(@Param('id') id: string, @Request() req: any): Promise<any> {
     return this.timeTrackingService.findById(id, req.user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id')
+  async updateEntry(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.timeTrackingService.updateEntry(id, body, req.user);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  async deleteEntry(@Param('id') id: string, @Request() req: any) {
+    return this.timeTrackingService.deleteEntry(id, req.user);
   }
 }

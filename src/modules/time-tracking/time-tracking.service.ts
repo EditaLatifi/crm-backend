@@ -318,4 +318,38 @@ export class TimeTrackingService {
     }
     return entry;
   }
+
+  async updateEntry(id: string, body: any, user: any) {
+    const entry = await this.prisma.timeEntry.findUnique({ where: { id } });
+    if (!entry) throw notFound('Zeiteintrag nicht gefunden');
+    if (user.role !== Role.ADMIN && entry.userId !== user.userId) {
+      throw forbidden('Nur eigene Zeiteinträge bearbeiten');
+    }
+    const data: any = {};
+    if (body.durationMinutes !== undefined) {
+      if (body.durationMinutes < 1) throw new BadRequestException('Mindestens 1 Minute');
+      if (body.durationMinutes > 840) throw new BadRequestException('Maximum 14 Stunden');
+      data.durationMinutes = body.durationMinutes;
+      data.endedAt = new Date(entry.startedAt.getTime() + body.durationMinutes * 60000);
+    }
+    if (body.hours !== undefined) {
+      const mins = Math.round(body.hours * 60);
+      if (mins < 1 || mins > 840) throw new BadRequestException('Stunden: 0.25 - 14');
+      data.durationMinutes = mins;
+      data.endedAt = new Date(entry.startedAt.getTime() + mins * 60000);
+    }
+    if (body.description !== undefined) data.description = body.description;
+    if (body.projectPhaseId !== undefined) data.projectPhaseId = body.projectPhaseId || null;
+    return this.prisma.timeEntry.update({ where: { id }, data });
+  }
+
+  async deleteEntry(id: string, user: any) {
+    const entry = await this.prisma.timeEntry.findUnique({ where: { id } });
+    if (!entry) throw notFound('Zeiteintrag nicht gefunden');
+    if (user.role !== Role.ADMIN && entry.userId !== user.userId) {
+      throw forbidden('Nur eigene Zeiteinträge löschen');
+    }
+    await this.prisma.timeEntry.delete({ where: { id } });
+    return { deleted: true };
+  }
 }
