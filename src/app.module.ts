@@ -20,6 +20,7 @@ import { BudgetModule } from './modules/budget/budget.module';
 import { DocumentsModule } from './modules/documents/documents.module';
 import { ShareModule } from './modules/share/share.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { FollowUpsModule } from './modules/follow-ups/follow-ups.module';
 import { HealthController } from './health.controller';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
@@ -52,6 +53,7 @@ import { EmailModule } from './modules/email/email.module';
     DocumentsModule,
     ShareModule,
     NotificationsModule,
+    FollowUpsModule,
   ],
   controllers: [HealthController],
   providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],

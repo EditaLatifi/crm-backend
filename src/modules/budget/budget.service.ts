@@ -64,6 +64,9 @@ export class BudgetService {
 
     const totalEstimated = items.reduce((s, i) => s + i.estimatedCost, 0);
     const totalActual = items.reduce((s, i) => s + (i.actualCost ?? 0), 0);
+    const budget = project?.budget ?? 0;
+    const remaining = budget - totalActual;
+    const percent = budget > 0 ? Math.round((totalActual / budget) * 100) : 0;
     const byCategory = items.reduce((acc: any, i) => {
       if (!acc[i.category]) acc[i.category] = { estimated: 0, actual: 0 };
       acc[i.category].estimated += i.estimatedCost;
@@ -71,14 +74,52 @@ export class BudgetService {
       return acc;
     }, {});
 
+    // Budget status warnings
+    let status: 'OK' | 'WARNING' | 'OVER' = 'OK';
+    let warning: string | null = null;
+    if (budget > 0) {
+      if (percent >= 100) {
+        status = 'OVER';
+        warning = `Budget überschritten: ${percent}% verbraucht (${totalActual.toFixed(2)} / ${budget.toFixed(2)} CHF)`;
+      } else if (percent >= 80) {
+        status = 'WARNING';
+        warning = `Achtung: ${percent}% des Budgets verbraucht (${totalActual.toFixed(2)} / ${budget.toFixed(2)} CHF)`;
+      }
+    }
+
     return {
-      totalBudget: project?.budget ?? 0,
+      totalBudget: budget,
       currency: project?.currency ?? 'CHF',
       totalEstimated,
       totalActual,
-      remaining: (project?.budget ?? 0) - totalActual,
+      remaining,
+      percent,
+      status,
+      warning,
       byCategory,
     };
+  }
+
+  async validateBudget(projectId: string, additionalCost: number, user: any) {
+    const summary = await this.getSummary(projectId, user);
+    const afterCost = summary.totalActual + additionalCost;
+    const budget = summary.totalBudget;
+
+    if (budget > 0) {
+      const percent = Math.round((afterCost / budget) * 100);
+      if (percent > 110 && user.role !== Role.ADMIN && user.role !== 'PROJEKTLEITER') {
+        throw new ForbiddenException(
+          `Budget würde um ${(percent - 100)}% überschritten. Genehmigung durch Admin/Projektleiter erforderlich.`,
+        );
+      }
+      if (percent >= 100) {
+        return { allowed: true, warning: `Budget wird überschritten: ${percent}% nach Buchung` };
+      }
+      if (percent >= 80) {
+        return { allowed: true, warning: `Achtung: ${percent}% des Budgets nach Buchung` };
+      }
+    }
+    return { allowed: true, warning: null };
   }
 
   async getAlerts(user: any) {

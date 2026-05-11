@@ -84,6 +84,30 @@ model NotificationPreference {
   updatedAt              DateTime @updatedAt
 }
 
+// ─── Follow-Up (globally visible reminders) ──────────────────────────────────
+
+model FollowUp {
+  id               String         @id @default(uuid())
+  entityType       String         // 'deal', 'project', 'contact', 'task'
+  entityId         String
+  title            String
+  description      String?
+  dueDate          DateTime
+  completed        Boolean        @default(false)
+  completedAt      DateTime?
+  assignedToUserId String?
+  assignedTo       User?          @relation("FollowUpAssignee", fields: [assignedToUserId], references: [id])
+  createdByUserId  String
+  createdBy        User           @relation("FollowUpCreator", fields: [createdByUserId], references: [id])
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  @@index([entityType, entityId])
+  @@index([assignedToUserId])
+  @@index([dueDate])
+  @@index([completed])
+}
+
 model EmailLog {
   id             String         @id @default(uuid())
   subject        String
@@ -243,6 +267,8 @@ model User {
   notifications        Notification[]          @relation("UserNotifications")
   notificationPrefs    NotificationPreference? @relation("NotificationPrefs")
   dealPhases           DealPhase[]             @relation("DealPhaseResponsible")
+  createdFollowUps     FollowUp[]              @relation("FollowUpCreator")
+  assignedFollowUps    FollowUp[]              @relation("FollowUpAssignee")
 }
 
 enum Role {
@@ -419,6 +445,7 @@ model DealPhase {
   responsibleUserId String?
   responsible       User?              @relation("DealPhaseResponsible", fields: [responsibleUserId], references: [id])
   payments          DealPhasePayment[]
+  projectPhases     ProjectPhase[]     @relation("DealPhaseToProjectPhase")
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
 
@@ -663,29 +690,35 @@ model Project {
 }
 
 model ProjectPhase {
-  id                String         @id @default(uuid())
-  projectId         String
-  project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name              String
-  description       String?
-  order             Int
-  status            PhaseStatus    @default(PENDING)
-  startDate         DateTime?
-  endDate           DateTime?
-  notes             String?
-  budgetHours       Float?
-  completedAt       DateTime?
-  completedByUserId String?
-  completedBy       User?          @relation("PhaseCompletedBy", fields: [completedByUserId], references: [id])
-  linkedTaskId      String?        @unique
-  linkedTask        Task?          @relation("PhaseLinkedTask", fields: [linkedTaskId], references: [id])
-  timeEntries       TimeEntry[]
-  runningTimers     RunningTimer[]
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  id                  String         @id @default(uuid())
+  projectId           String
+  project             Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                String
+  description         String?
+  order               Int
+  status              PhaseStatus    @default(PENDING)
+  startDate           DateTime?
+  endDate             DateTime?
+  notes               String?
+  budgetHours         Float?
+  budgetChf           Float?
+  offeredHours        Float?
+  code                String?
+  completedAt         DateTime?
+  completedByUserId   String?
+  completedBy         User?          @relation("PhaseCompletedBy", fields: [completedByUserId], references: [id])
+  linkedTaskId        String?        @unique
+  linkedTask          Task?          @relation("PhaseLinkedTask", fields: [linkedTaskId], references: [id])
+  originDealPhaseId   String?
+  originDealPhase     DealPhase?     @relation("DealPhaseToProjectPhase", fields: [originDealPhaseId], references: [id], onDelete: SetNull)
+  timeEntries         TimeEntry[]
+  runningTimers       RunningTimer[]
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
 
   @@index([projectId])
   @@index([status])
+  @@index([originDealPhaseId])
 }
 
 model ProjectMember {

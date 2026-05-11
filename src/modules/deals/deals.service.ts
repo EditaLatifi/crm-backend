@@ -508,7 +508,7 @@ export class DealsService {
             },
           });
 
-          // Sync DealPhases -> ProjectPhases
+          // Sync DealPhases -> ProjectPhases (with origin link)
           const dealPhases = await this.prisma.dealPhase.findMany({
             where: { dealId, parentId: null },
             orderBy: { order: 'asc' },
@@ -520,8 +520,12 @@ export class DealsService {
                 name: dp.name,
                 description: dp.description || undefined,
                 order: dp.order,
+                code: dp.code || undefined,
                 status: 'PENDING',
                 budgetHours: dp.hourBudget || undefined,
+                budgetChf: dp.budgetChf || undefined,
+                offeredHours: dp.offeredHours || undefined,
+                originDealPhaseId: dp.id,
               },
             }).catch(() => {});
           }

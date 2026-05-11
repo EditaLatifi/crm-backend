@@ -488,6 +488,39 @@ export class ProjectsService {
     return updated;
   }
 
+  async getPhaseKontingent(projectId: string, phaseId: string) {
+    const phase = await this.prisma.projectPhase.findFirst({
+      where: { id: phaseId, projectId },
+      include: {
+        timeEntries: { select: { durationMinutes: true } },
+        originDealPhase: {
+          select: { budgetChf: true, offeredHours: true, hourBudget: true },
+        },
+      },
+    });
+    if (!phase) throw new NotFoundException('Phase nicht gefunden');
+
+    const budgetHours = phase.budgetHours || 0;
+    const budgetChf = phase.budgetChf || phase.originDealPhase?.budgetChf || 0;
+    const offeredHours = phase.offeredHours || phase.originDealPhase?.offeredHours || 0;
+    const usedMinutes = phase.timeEntries.reduce((s, e) => s + e.durationMinutes, 0);
+    const usedHours = usedMinutes / 60;
+    const remaining = Math.max(0, budgetHours - usedHours);
+    const percent = budgetHours > 0 ? Math.round((usedHours / budgetHours) * 100) : 0;
+
+    return {
+      phaseId,
+      phaseName: phase.name,
+      budgetHours,
+      budgetChf,
+      offeredHours,
+      usedHours: Math.round(usedHours * 10) / 10,
+      remaining: Math.round(remaining * 10) / 10,
+      percent,
+      status: percent >= 100 ? 'OVER' : percent >= 80 ? 'WARNING' : 'OK',
+    };
+  }
+
   async deletePhase(
     projectId: string,
     phaseId: string,

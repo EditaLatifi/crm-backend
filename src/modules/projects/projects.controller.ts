@@ -107,6 +107,14 @@ export class ProjectsController {
     return this.projectsService.updatePhase(id, phaseId, dto, req.user);
   }
 
+  @Get(':id/phases/:phaseId/kontingent')
+  async getPhaseKontingent(
+    @Param('id') id: string,
+    @Param('phaseId') phaseId: string,
+  ) {
+    return this.projectsService.getPhaseKontingent(id, phaseId);
+  }
+
   @Delete(':id/phases/:phaseId')
   async deletePhase(
     @Param('id') id: string,
