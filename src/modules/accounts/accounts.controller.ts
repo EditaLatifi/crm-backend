@@ -34,4 +34,31 @@ export class AccountsController {
   async delete(@Param('id') id: string, @Request() req: any) {
     return this.accountsService.delete(id, req.user);
   }
+
+  // ─── Account Notes (threaded) ───
+  @Get(':id/notes')
+  async getNotes(@Param('id') id: string) {
+    return this.accountsService.getNotes(id);
+  }
+
+  @Post(':id/notes')
+  async addNote(@Param('id') id: string, @Body('content') content: string, @Request() req: any) {
+    return this.accountsService.addNote(id, content, req.user);
+  }
+
+  @Delete('notes/:noteId')
+  async deleteNote(@Param('noteId') noteId: string) {
+    return this.accountsService.deleteNote(noteId);
+  }
+
+  // ─── Bulk Operations ───
+  @Post('bulk-assign')
+  async bulkAssign(@Body() body: { ids: string[]; ownerUserId: string }, @Request() req: any) {
+    return this.accountsService.bulkAssign(body.ids, body.ownerUserId, req.user);
+  }
+
+  @Post('bulk-type')
+  async bulkChangeType(@Body() body: { ids: string[]; type: string }, @Request() req: any) {
+    return this.accountsService.bulkChangeType(body.ids, body.type, req.user);
+  }
 }

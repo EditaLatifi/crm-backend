@@ -145,6 +145,22 @@ export class TasksService {
       }
       await Promise.all(historyEntries);
     }
+
+    // Auto-complete task when all checklist items are done
+    if (body.checklists !== undefined && updated.status !== 'DONE') {
+      const checklists = body.checklists as any[];
+      if (Array.isArray(checklists) && checklists.length > 0) {
+        const allItems = checklists.flatMap((cl: any) => cl.items || []);
+        if (allItems.length > 0 && allItems.every((item: any) => item.done)) {
+          await this.prisma.task.update({ where: { id }, data: { status: 'DONE' } });
+          (updated as any).status = 'DONE';
+          await this.prisma.taskHistory.create({
+            data: { taskId: id, action: 'STATUS_CHANGED', payload: { from: oldTask?.status, to: 'DONE', reason: 'Alle Checklisten-Punkte erledigt' }, userId: user.userId },
+          });
+        }
+      }
+    }
+
     return updated;
   }
   

@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma.service';
 import { EmailService } from './email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class DueDateCron {
@@ -10,6 +11,7 @@ export class DueDateCron {
   constructor(
     private readonly prisma: PrismaService,
     private readonly email: EmailService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   @Cron(CronExpression.EVERY_DAY_AT_8AM)
@@ -23,6 +25,9 @@ export class DueDateCron {
     await this.remindDealsDueToday(start, end);
     await this.remindAppointmentsToday(start, end);
     await this.remindPhasePaymentsDueToday(start, end);
+    await this.remindFollowUpsDueToday(start, end);
+    await this.remindContactFollowUpsDueToday(start, end);
+    await this.checkBudgetAlerts();
 
     // Pre-deadline reminders (default 1 day before, configurable via REMINDER_DAYS_BEFORE)
     const daysBeforeRaw = process.env.REMINDER_DAYS_BEFORE || '1';
@@ -264,6 +269,76 @@ export class DueDateCron {
         entityType: 'Appointment',
         entityId: a.id,
       });
+    }
+  }
+
+  // ─── Follow-up Reminders ───
+  private async remindFollowUpsDueToday(start: Date, end: Date) {
+    const followUps = await (this.prisma as any).followUp.findMany({
+      where: { dueDate: { gte: start, lte: end }, completed: false },
+      include: { assignedTo: true, createdBy: true },
+    });
+    for (const f of followUps) {
+      const recipient = f.assignedTo?.email || f.createdBy?.email;
+      if (!recipient) continue;
+      const userId = f.assignedToUserId || f.createdByUserId;
+      await this.email.send({
+        to: recipient,
+        subject: `Erinnerung: Follow-up heute fällig – ${f.title}`,
+        text: `Dein Follow-up "${f.title}" ist heute fällig.\n\n${f.notes || ''}`,
+        loggedByUserId: userId,
+      });
+      if (userId) {
+        this.notifications.createForUser(userId, 'TASK_ASSIGNED', 'Follow-up fällig', `"${f.title}" ist heute fällig`, 'FollowUp', f.id, '/calendar').catch(() => {});
+      }
+    }
+  }
+
+  // ─── Contact Follow-up Reminders ───
+  private async remindContactFollowUpsDueToday(start: Date, end: Date) {
+    const contacts = await this.prisma.contact.findMany({
+      where: { followUpDate: { gte: start, lte: end } },
+      include: { account: { select: { ownerUserId: true, owner: { select: { email: true, name: true } } } } },
+    });
+    for (const c of contacts) {
+      const owner = c.account?.owner;
+      if (!owner?.email) continue;
+      const link = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/contacts/${c.id}`;
+      await this.email.send({
+        to: owner.email,
+        subject: `Erinnerung: Kontakt-Nachfass heute – ${c.name}`,
+        text: `Follow-up für Kontakt "${c.name}" ist heute fällig.\n\nLink: ${link}`,
+        loggedByUserId: c.account?.ownerUserId || null,
+        entityType: 'Contact',
+        entityId: c.id,
+      });
+      if (c.account?.ownerUserId) {
+        this.notifications.createForUser(c.account.ownerUserId, 'TASK_ASSIGNED', 'Kontakt-Nachfass', `Follow-up für "${c.name}" ist heute`, 'Contact', c.id, `/contacts/${c.id}`).catch(() => {});
+      }
+    }
+  }
+
+  // ─── Budget Alerts (>80% used) ───
+  private async checkBudgetAlerts() {
+    const projects = await this.prisma.project.findMany({
+      where: { status: 'ACTIVE' },
+      select: {
+        id: true, name: true, budget: true, ownerUserId: true,
+        budgetItems: { select: { actualCost: true } },
+      },
+    });
+    for (const p of projects) {
+      if (!p.budget || p.budget <= 0 || !p.ownerUserId) continue;
+      const actual = p.budgetItems.reduce((s: number, i: any) => s + (i.actualCost ?? 0), 0);
+      const pct = Math.round((actual / p.budget) * 100);
+      if (pct >= 80) {
+        this.notifications.createForUser(
+          p.ownerUserId, 'BUDGET_WARNING',
+          pct >= 100 ? 'Budget überschritten' : 'Budget-Warnung',
+          `Projekt "${p.name}": ${pct}% des Budgets verbraucht`,
+          'Project', p.id, `/projects/${p.id}`,
+        ).catch(() => {});
+      }
     }
   }
 }

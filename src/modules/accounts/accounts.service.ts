@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { forbidden, notFound } from '../../common/error/error.response';
 import { PrismaService } from '../../common/prisma.service';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Account, Role } from '@prisma/client';
 
 @Injectable()
@@ -9,6 +10,7 @@ export class AccountsService {
   constructor(
     private prisma: PrismaService,
     private activityLogger: ActivityLoggerService,
+    private notifications: NotificationsService,
   ) {}
 
   async findAll(user: any, page = 1, pageSize = 100, type?: string): Promise<any[]> {
@@ -143,5 +145,50 @@ export class AccountsService {
       await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Account', entityId: id, action: 'DELETE', payloadJson: { name: account.name } });
     }
     return { deleted: true };
+  }
+
+  // ─── Account Notes (threaded) ───
+  async getNotes(accountId: string) {
+    return (this.prisma.note as any).findMany({
+      where: { accountId },
+      include: { createdBy: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async addNote(accountId: string, content: string, user: any) {
+    const account = await this.prisma.account.findUnique({ where: { id: accountId }, select: { name: true, ownerUserId: true } });
+    if (!account) throw notFound('Konto nicht gefunden');
+    const note = await (this.prisma.note as any).create({
+      data: { accountId, content, createdByUserId: user.userId },
+      include: { createdBy: { select: { id: true, name: true, email: true } } },
+    });
+    if (account.ownerUserId && account.ownerUserId !== user.userId) {
+      this.notifications.createForUser(
+        account.ownerUserId, 'TASK_COMMENT',
+        'Neue Notiz',
+        `${note.createdBy?.name || 'Jemand'} hat eine Notiz zu "${account.name}" hinzugefügt`,
+        'Account', accountId, `/accounts/${accountId}`,
+      ).catch(() => {});
+    }
+    return note;
+  }
+
+  async deleteNote(noteId: string) {
+    await this.prisma.note.delete({ where: { id: noteId } });
+    return { deleted: true };
+  }
+
+  // ─── Bulk Operations ───
+  async bulkAssign(ids: string[], ownerUserId: string, user: any) {
+    if (user.role !== Role.ADMIN) throw forbidden('Nur Admins können Konten zuweisen');
+    await this.prisma.account.updateMany({ where: { id: { in: ids } }, data: { ownerUserId } });
+    return { updated: ids.length };
+  }
+
+  async bulkChangeType(ids: string[], type: string, user: any) {
+    if (user.role !== Role.ADMIN) throw forbidden('Nur Admins können den Typ ändern');
+    await this.prisma.account.updateMany({ where: { id: { in: ids } }, data: { type: type as any } });
+    return { updated: ids.length };
   }
 }

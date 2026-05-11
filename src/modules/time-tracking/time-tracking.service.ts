@@ -3,10 +3,14 @@ import { RunningTimer, TimeEntry, Role } from '@prisma/client';
 import { Injectable, BadRequestException } from '@nestjs/common';
 import { forbidden, notFound } from '../../common/error/error.response';
 import { PrismaService } from '../../common/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class TimeTrackingService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+  ) {}
 
   async startTimer(user: any, accountId: string, taskId?: string, description?: string, projectId?: string, projectPhaseId?: string): Promise<RunningTimer> {
     const existing = await this.prisma.runningTimer.findUnique({ where: { userId: user.userId } });
@@ -159,8 +163,17 @@ export class TimeTrackingService {
             );
           }
           kontingentWarning = `Kontingent wird überschritten. Verbleibend vor Buchung: ${(budgetHours - usedHours).toFixed(1)}h`;
+          // Notify project owner about kontingent exceeded
+          const proj = await this.prisma.project.findFirst({ where: { phases: { some: { id: body.projectPhaseId } } }, select: { id: true, name: true, ownerUserId: true } });
+          if (proj?.ownerUserId && proj.ownerUserId !== user.userId) {
+            this.notifications.createForUser(proj.ownerUserId, 'BUDGET_WARNING', 'Kontingent überschritten', `Phase-Budget in "${proj.name}" überschritten (${afterBooking.toFixed(1)}h / ${budgetHours}h)`, 'Project', proj.id, `/projects/${proj.id}`).catch(() => {});
+          }
         } else if (usagePercent >= 80) {
           kontingentWarning = `Achtung: ${usagePercent.toFixed(0)}% des Kontingents verbraucht (${afterBooking.toFixed(1)}h / ${budgetHours}h)`;
+          const proj = await this.prisma.project.findFirst({ where: { phases: { some: { id: body.projectPhaseId } } }, select: { id: true, name: true, ownerUserId: true } });
+          if (proj?.ownerUserId && proj.ownerUserId !== user.userId) {
+            this.notifications.createForUser(proj.ownerUserId, 'BUDGET_WARNING', 'Kontingent-Warnung', `Phase-Budget in "${proj.name}" bei ${usagePercent.toFixed(0)}%`, 'Project', proj.id, `/projects/${proj.id}`).catch(() => {});
+          }
         }
       }
     }

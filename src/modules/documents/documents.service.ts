@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { SupabaseStorageService } from './supabase-storage.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Role } from '@prisma/client';
 
 @Injectable()
@@ -8,6 +9,7 @@ export class DocumentsService {
   constructor(
     private prisma: PrismaService,
     private storage: SupabaseStorageService,
+    private notifications: NotificationsService,
   ) {}
 
   async findByProject(projectId: string, user: any) {
@@ -22,7 +24,7 @@ export class DocumentsService {
   async uploadFile(projectId: string, file: Express.Multer.File, dto: any, user: any) {
     await this.checkProjectAccess(projectId, user);
     const url = await this.storage.uploadFile(projectId, file);
-    return this.prisma.projectDocument.create({
+    const doc = await this.prisma.projectDocument.create({
       data: {
         projectId,
         name: dto.name || file.originalname,
@@ -34,6 +36,26 @@ export class DocumentsService {
       },
       include: { uploadedBy: { select: { id: true, name: true } } },
     });
+
+    // Notify project members about new document
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { name: true, ownerUserId: true, members: { select: { userId: true } } },
+    });
+    if (project) {
+      const recipients = new Set([project.ownerUserId, ...project.members.map((m: any) => m.userId)]);
+      recipients.delete(user.userId);
+      for (const uid of recipients) {
+        this.notifications.createForUser(
+          uid, 'TASK_COMMENT',
+          'Neues Dokument',
+          `"${doc.name}" wurde in "${project.name}" hochgeladen`,
+          'Project', projectId, `/projects/${projectId}`,
+        ).catch(() => {});
+      }
+    }
+
+    return doc;
   }
 
   async create(projectId: string, dto: any, user: any) {
