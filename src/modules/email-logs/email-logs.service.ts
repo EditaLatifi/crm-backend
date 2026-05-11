@@ -1,9 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class EmailLogsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private email: EmailService,
+  ) {}
 
   async findForEntity(entityType: 'account' | 'contact', entityId: string) {
     const where = entityType === 'account' ? { accountId: entityId } : { contactId: entityId };
@@ -15,11 +19,42 @@ export class EmailLogsService {
   }
 
   async create(data: any, user: any) {
+    // Resolve recipient email if sending outbound
+    let recipientEmail: string | null = data.recipient || null;
+
+    if (data.direction === 'OUTBOUND' && !recipientEmail) {
+      // Try to resolve email from contact or account
+      if (data.contactId) {
+        const contact = await this.prisma.contact.findUnique({ where: { id: data.contactId }, select: { email: true } });
+        recipientEmail = contact?.email || null;
+      } else if (data.accountId) {
+        const account = await this.prisma.account.findUnique({ where: { id: data.accountId }, select: { email: true } });
+        recipientEmail = account?.email || null;
+      }
+    }
+
+    // Actually send the email via SMTP if outbound and we have a recipient
+    if (data.direction === 'OUTBOUND' && recipientEmail) {
+      await this.email.send({
+        to: recipientEmail,
+        subject: data.subject,
+        text: data.body || undefined,
+        accountId: data.accountId || null,
+        contactId: data.contactId || null,
+        loggedByUserId: user.userId,
+        entityType: data.contactId ? 'Contact' : 'Account',
+        entityId: data.contactId || data.accountId || null,
+      });
+    }
+
+    // Log the email
     return this.prisma.emailLog.create({
       data: {
         subject: data.subject,
         body: data.body || null,
         direction: data.direction || 'OUTBOUND',
+        recipient: recipientEmail,
+        status: recipientEmail && data.direction === 'OUTBOUND' ? 'SUCCESS' : undefined,
         accountId: data.accountId || null,
         contactId: data.contactId || null,
         loggedByUserId: user.userId,
