@@ -173,7 +173,7 @@ model Appointment {
 model Attachment {
   id               String   @id @default(uuid())
   dealId           String
-  deal             Deal     @relation(fields: [dealId], references: [id])
+  deal             Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
   url              String
   filename         String
   mimeType         String?
@@ -186,7 +186,7 @@ model Attachment {
 model Note {
   id              String   @id @default(uuid())
   dealId          String?
-  deal            Deal?    @relation(fields: [dealId], references: [id])
+  deal            Deal?    @relation(fields: [dealId], references: [id], onDelete: Cascade)
   contactId       String?
   contact         Contact? @relation(fields: [contactId], references: [id], onDelete: Cascade)
   accountId       String?
@@ -430,7 +430,7 @@ model Deal {
 model DealStageHistory {
   id              String     @id @default(uuid())
   dealId          String
-  deal            Deal       @relation(fields: [dealId], references: [id])
+  deal            Deal       @relation(fields: [dealId], references: [id], onDelete: Cascade)
   fromStageId     String?
   toStageId       String
   toStage         DealStage  @relation("ToStage", fields: [toStageId], references: [id])
@@ -521,9 +521,9 @@ model Task {
   contact          Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
   // already has activities and dailyTimeByTask
   dealId           String?
-  deal             Deal?             @relation(fields: [dealId], references: [id])
+  deal             Deal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
   projectId        String?
-  project          Project?          @relation("ProjectTasks", fields: [projectId], references: [id])
+  project          Project?          @relation("ProjectTasks", fields: [projectId], references: [id], onDelete: SetNull)
   phase            String? // SIA Leistungsphase code e.g. "31.1", "52"
   specification    String? // Free text specification
   assigneeIds      Json? // Additional assignee user IDs array
@@ -584,9 +584,9 @@ model TimeEntry {
   taskId          String?
   task            Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
   projectId       String?
-  project         Project?      @relation(fields: [projectId], references: [id])
+  project         Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
   projectPhaseId  String?
-  projectPhase    ProjectPhase? @relation(fields: [projectPhaseId], references: [id])
+  projectPhase    ProjectPhase? @relation(fields: [projectPhaseId], references: [id], onDelete: SetNull)
   startedAt       DateTime
   endedAt         DateTime
   durationMinutes Int
@@ -611,7 +611,7 @@ model RunningTimer {
   projectId      String?
   project        Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
   projectPhaseId String?
-  projectPhase   ProjectPhase? @relation(fields: [projectPhaseId], references: [id])
+  projectPhase   ProjectPhase? @relation(fields: [projectPhaseId], references: [id], onDelete: SetNull)
   startedAt      DateTime
   description    String?
 }
