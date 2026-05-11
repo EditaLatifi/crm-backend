@@ -30,6 +30,18 @@ enum VacationStatus {
   REJECTED
 }
 
+model PasswordResetToken {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation("PasswordResetTokens", fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([token])
+  @@index([expiresAt])
+}
+
 model VacationQuota {
   id        String   @id @default(uuid())
   userId    String
@@ -162,11 +174,17 @@ model Appointment {
   creator         User     @relation("AppointmentCreator", fields: [createdByUserId], references: [id])
   assigneeUserId  String?
   assignee        User?    @relation("AppointmentAssignee", fields: [assigneeUserId], references: [id])
+  recurrence      String?  // NONE, DAILY, WEEKLY, BIWEEKLY, MONTHLY
+  recurrenceEnd   DateTime?
+  parentId        String?
+  parent          Appointment? @relation("RecurringAppointments", fields: [parentId], references: [id], onDelete: SetNull)
+  children        Appointment[] @relation("RecurringAppointments")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([startAt])
   @@index([createdByUserId])
+  @@index([parentId])
   @@index([assigneeUserId])
 }
 
@@ -266,6 +284,7 @@ model User {
   vacationRequests     VacationRequest[]       @relation("VacationRequests")
   reviewedVacations    VacationRequest[]       @relation("VacationReviewer")
   vacationQuotas       VacationQuota[]         @relation("VacationQuotas")
+  passwordResetTokens  PasswordResetToken[]    @relation("PasswordResetTokens")
   ownedProjects        Project[]               @relation("ProjectOwner")
   createdProjects      Project[]               @relation("ProjectCreator")
   projectMemberships   ProjectMember[]         @relation("ProjectMembers")

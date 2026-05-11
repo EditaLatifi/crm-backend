@@ -4,6 +4,7 @@ import { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import { UsersModule } from '../modules/users/users.module';
 import { EmailModule } from '../modules/email/email.module';
+import { CommonModule } from '../common/common.module';
 import { JwtStrategy } from './jwt.strategy';
 import { LocalStrategy } from './local.strategy';
 import { PassportModule } from '@nestjs/passport';
@@ -13,6 +14,7 @@ import { PassportModule } from '@nestjs/passport';
     forwardRef(() => UsersModule),
     EmailModule,
     PassportModule,
+    CommonModule,
     JwtModule.register({
       secret: process.env.JWT_SECRET || 'dev_secret',
       signOptions: { expiresIn: '8h' },

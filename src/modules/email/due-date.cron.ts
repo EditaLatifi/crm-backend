@@ -14,6 +14,55 @@ export class DueDateCron {
     private readonly notifications: NotificationsService,
   ) {}
 
+  // Aggregate daily time entries at midnight
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  async aggregateDailyTime() {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const start = startOf(yesterday);
+    const end = endOf(yesterday);
+    this.logger.log(`Aggregating daily time for ${start.toISOString().slice(0, 10)}`);
+
+    const entries = await this.prisma.timeEntry.findMany({
+      where: { startedAt: { gte: start, lte: end } },
+      select: { userId: true, accountId: true, taskId: true, durationMinutes: true },
+    });
+
+    // Group by user
+    const byUser = new Map<string, number>();
+    const byAccount = new Map<string, number>();
+    const byTask = new Map<string, number>();
+    for (const e of entries) {
+      byUser.set(e.userId, (byUser.get(e.userId) || 0) + e.durationMinutes);
+      byAccount.set(e.accountId, (byAccount.get(e.accountId) || 0) + e.durationMinutes);
+      if (e.taskId) byTask.set(e.taskId, (byTask.get(e.taskId) || 0) + e.durationMinutes);
+    }
+
+    const dateKey = start;
+    for (const [userId, totalMinutes] of byUser) {
+      await this.prisma.dailyTimeByUser.upsert({
+        where: { date_userId: { date: dateKey, userId } },
+        update: { totalMinutes },
+        create: { date: dateKey, userId, totalMinutes },
+      }).catch(() => {});
+    }
+    for (const [accountId, totalMinutes] of byAccount) {
+      await this.prisma.dailyTimeByAccount.upsert({
+        where: { date_accountId: { date: dateKey, accountId } },
+        update: { totalMinutes },
+        create: { date: dateKey, accountId, totalMinutes },
+      }).catch(() => {});
+    }
+    for (const [taskId, totalMinutes] of byTask) {
+      await (this.prisma.dailyTimeByTask as any).upsert({
+        where: { date_taskId: { date: dateKey, taskId } },
+        update: { totalMinutes },
+        create: { date: dateKey, taskId, totalMinutes },
+      }).catch(() => {});
+    }
+    this.logger.log(`Aggregated: ${byUser.size} users, ${byAccount.size} accounts, ${byTask.size} tasks`);
+  }
+
   @Cron(CronExpression.EVERY_DAY_AT_8AM)
   async sendDueDateReminders() {
     const start = startOfToday();

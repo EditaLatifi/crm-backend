@@ -78,7 +78,51 @@ export class AppointmentsService {
         }).catch(() => {});
       }
     }
+    // Generate recurring instances if recurrence is set
+    if (data.recurrence && data.recurrence !== 'NONE' && data.recurrenceEnd) {
+      const instances = this.generateRecurrences(appt, data.recurrence, new Date(data.recurrenceEnd));
+      for (const inst of instances) {
+        await this.prisma.appointment.create({
+          data: { ...inst, parentId: appt.id, createdByUserId: user.userId },
+        }).catch(() => {});
+      }
+    }
+
     return appt;
+  }
+
+  private generateRecurrences(parent: any, recurrence: string, until: Date): any[] {
+    const instances: any[] = [];
+    const start = new Date(parent.startAt);
+    const end = new Date(parent.endAt);
+    const duration = end.getTime() - start.getTime();
+    let current = new Date(start);
+
+    const advance = (d: Date) => {
+      if (recurrence === 'DAILY') d.setDate(d.getDate() + 1);
+      else if (recurrence === 'WEEKLY') d.setDate(d.getDate() + 7);
+      else if (recurrence === 'BIWEEKLY') d.setDate(d.getDate() + 14);
+      else if (recurrence === 'MONTHLY') d.setMonth(d.getMonth() + 1);
+    };
+
+    advance(current); // skip first (already created as parent)
+    while (current <= until && instances.length < 52) { // max 52 instances
+      const s = new Date(current);
+      const e = new Date(s.getTime() + duration);
+      instances.push({
+        title: parent.title,
+        description: parent.description,
+        startAt: s,
+        endAt: e,
+        accountId: parent.accountId,
+        contactId: parent.contactId,
+        dealId: parent.dealId,
+        assigneeUserId: parent.assigneeUserId,
+        recurrence: null,
+      });
+      advance(current);
+    }
+    return instances;
   }
 
   async update(id: string, data: any) {

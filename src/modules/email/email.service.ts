@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { PrismaService } from '../../common/prisma.service';
+import { wrapInHtmlTemplate } from './email-template';
 
 export interface SendEmailParams {
   to: string | string[];
@@ -63,6 +64,10 @@ export class EmailService {
     const validRecipients = recipients.filter((r) => !!r && /.+@.+\..+/.test(r));
     if (validRecipients.length === 0) return;
 
+    // Auto-generate HTML from plain text if no HTML was explicitly provided
+    const html =
+      params.html ?? (params.text ? wrapInHtmlTemplate(params.subject, params.text) : undefined);
+
     let status: 'SUCCESS' | 'FAILED' = 'SUCCESS';
     let errorMessage: string | null = null;
 
@@ -73,7 +78,7 @@ export class EmailService {
           to: validRecipients.join(','),
           subject: params.subject,
           text: params.text,
-          html: params.html,
+          html,
         });
       } else {
         this.logger.log(`[email-disabled] To: ${validRecipients.join(',')} | ${params.subject}`);

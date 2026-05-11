@@ -2,11 +2,9 @@ import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/
 import { JwtService } from '@nestjs/jwt';
 import { UsersService } from '../modules/users/users.service';
 import { EmailService } from '../modules/email/email.service';
+import { PrismaService } from '../common/prisma.service';
 import * as bcrypt from 'bcryptjs';
 import * as crypto from 'crypto';
-
-// In-memory reset token store (simple, no extra DB model needed)
-const resetTokens = new Map<string, { userId: string; expiresAt: number }>();
 
 @Injectable()
 export class AuthService {
@@ -14,13 +12,13 @@ export class AuthService {
     private usersService: UsersService,
     private jwtService: JwtService,
     private email: EmailService,
+    private prisma: PrismaService,
   ) {}
 
   async validateUser(email: string, pass: string) {
-    if (email === 'anonymous@crm.local') return null; // Block anonymous login
+    if (email === 'anonymous@crm.local') return null;
     const user = await this.usersService.findByEmail(email);
     if (user && await bcrypt.compare(pass, user.passwordHash)) {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { passwordHash, ...result } = user;
       return result;
     }
@@ -29,7 +27,6 @@ export class AuthService {
 
   async login(user: any) {
     const payload = { sub: user.id, role: user.role };
-    // Update lastLoginAt
     this.usersService.updateLastLogin(user.id).catch(() => {});
     return {
       access_token: this.jwtService.sign(payload),
@@ -41,6 +38,7 @@ export class AuthService {
       },
     };
   }
+
   async getUserById(id: string) {
     return this.usersService.findById(id);
   }
@@ -49,7 +47,16 @@ export class AuthService {
     const user = await this.usersService.findByEmail(email);
     if (!user) return; // Don't reveal if user exists
     const token = crypto.randomBytes(32).toString('hex');
-    resetTokens.set(token, { userId: user.id, expiresAt: Date.now() + 3600_000 }); // 1 hour
+
+    // Store token in DB (survives restarts)
+    await (this.prisma as any).passwordResetToken.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt: new Date(Date.now() + 3600_000), // 1 hour
+      },
+    });
+
     const link = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/reset-password?token=${token}`;
     this.email.send({
       to: user.email,
@@ -63,12 +70,15 @@ export class AuthService {
   }
 
   async resetPassword(token: string, newPassword: string) {
-    const entry = resetTokens.get(token);
-    if (!entry || entry.expiresAt < Date.now()) {
+    const entry = await (this.prisma as any).passwordResetToken.findUnique({ where: { token } });
+    if (!entry || entry.expiresAt < new Date()) {
       throw new BadRequestException('Token ungültig oder abgelaufen');
     }
     const hash = await bcrypt.hash(newPassword, 10);
     await this.usersService.updatePasswordHash(entry.userId, hash);
-    resetTokens.delete(token);
+    // Delete used token + any expired tokens for this user
+    await (this.prisma as any).passwordResetToken.deleteMany({
+      where: { OR: [{ token }, { userId: entry.userId }, { expiresAt: { lt: new Date() } }] },
+    });
   }
 }
