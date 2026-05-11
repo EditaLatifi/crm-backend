@@ -21,22 +21,21 @@ export class PrismaService
   }
 
   async onModuleInit() {
-    const maxRetries = 5;
+    const maxRetries = 10;
     let retries = maxRetries;
     while (retries) {
       try {
         await this.$connect();
         this.logger.log('Database connected');
-        break;
+        return;
       } catch (err) {
         retries -= 1;
         this.logger.warn(`DB connection failed, retrying (${maxRetries - retries}/${maxRetries})...`);
-        await new Promise(res => setTimeout(res, 2000)); // reduced from 5s to 2s
+        await new Promise(res => setTimeout(res, 3000));
       }
     }
-    if (!retries) {
-      throw new Error('Prisma could not connect after 5 retries');
-    }
+    // Don't crash — let the app start and retry on first request
+    this.logger.error('Prisma could not connect after retries, starting anyway...');
   }
 
   async enableShutdownHooks(app: INestApplication) {
