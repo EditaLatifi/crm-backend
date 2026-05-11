@@ -1,10 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { EmailService } from '../email/email.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class AppointmentsService {
-  constructor(private prisma: PrismaService, private email: EmailService) {}
+  constructor(private prisma: PrismaService, private email: EmailService, private notifications: NotificationsService) {}
 
   async findAll(user: any, upcoming?: boolean) {
     return this.prisma.appointment.findMany({
@@ -40,6 +41,16 @@ export class AppointmentsService {
         createdByUserId: user.userId,
       },
     });
+
+    // In-app notification for assignee
+    if (appt.assigneeUserId && appt.assigneeUserId !== user.userId) {
+      this.notifications.createForUser(
+        appt.assigneeUserId, 'APPOINTMENT_CREATED',
+        'Neuer Termin',
+        `"${appt.title}" am ${new Date(appt.startAt).toLocaleDateString('de-CH')}`,
+        'Appointment', appt.id, `/calendar`,
+      ).catch(() => {});
+    }
 
     if (appt.assigneeUserId) {
       const assignee = await this.prisma.user.findUnique({ where: { id: appt.assigneeUserId } });

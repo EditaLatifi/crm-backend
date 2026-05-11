@@ -1,17 +1,48 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
+import { EmailService } from '../email/email.service';
 import { Role } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private email: EmailService,
+  ) {}
 
   async createUser({ email, name, role, password }: { email: string; name: string; role: string; password: string }) {
     const bcrypt = require('bcryptjs');
     const passwordHash = await bcrypt.hash(password, 10);
-    return this.prisma.user.create({
+    const user = await this.prisma.user.create({
       data: { email, name, role: role as Role, passwordHash },
     });
+
+    // Send welcome email with credentials
+    const loginUrl = `${process.env.APP_BASE_URL || 'http://localhost:3000'}/login`;
+    this.email.send({
+      to: email,
+      subject: 'Willkommen im IP3 CRM – Dein Zugang',
+      text: [
+        `Hallo ${name},`,
+        ``,
+        `Dein Konto im IP3 CRM wurde erstellt.`,
+        ``,
+        `Login-URL:  ${loginUrl}`,
+        `E-Mail:     ${email}`,
+        `Passwort:   ${password}`,
+        ``,
+        `Bitte ändere dein Passwort nach dem ersten Login unter Profil.`,
+        ``,
+        `Viele Grüsse,`,
+        `IP3 CRM Team`,
+      ].join('\n'),
+      accountId: null,
+      loggedByUserId: user.id,
+      entityType: 'User',
+      entityId: user.id,
+    }).catch(() => {});
+
+    return user;
   }
 
   async findByEmail(email: string) {
@@ -97,6 +128,10 @@ export class UsersService {
 
   async updateLastLogin(id: string) {
     return this.prisma.user.update({ where: { id }, data: { lastLoginAt: new Date() } });
+  }
+
+  async updatePasswordHash(id: string, passwordHash: string) {
+    return this.prisma.user.update({ where: { id }, data: { passwordHash } });
   }
 
   async updateProfile(id: string, data: { name?: string; email?: string }) {

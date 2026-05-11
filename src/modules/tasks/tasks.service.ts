@@ -231,13 +231,25 @@ export class TasksService {
   async updateStatus(id: string, status: string, user: any) {
     const old = await this.prisma.task.findUnique({
       where: { id },
-      select: { status: true, linkedFromPhase: { select: { id: true, status: true } } },
+      select: { status: true, title: true, assignedToUserId: true, createdByUserId: true, linkedFromPhase: { select: { id: true, status: true } } },
     });
     const updated = await this.prisma.task.update({ where: { id }, data: { status: status as any } });
     if (user?.userId && old && status !== old.status) {
       await this.prisma.taskHistory.create({
         data: { taskId: id, action: 'STATUS_CHANGED', payload: { from: old.status, to: status }, userId: user.userId },
       });
+      // Notify assignee and creator about status change
+      const STATUS_LABELS: Record<string, string> = { OPEN: 'Offen', IN_PROGRESS: 'In Bearbeitung', DONE: 'Erledigt' };
+      const recipients = new Set([old.assignedToUserId, old.createdByUserId].filter(Boolean));
+      recipients.delete(user.userId);
+      for (const recipientId of recipients) {
+        this.notifications.createForUser(
+          recipientId!, 'TASK_STATUS_CHANGED',
+          'Aufgabe aktualisiert',
+          `"${old.title}" ist jetzt: ${STATUS_LABELS[status] || status}`,
+          'Task', id, `/tasks/${id}`,
+        ).catch(() => {});
+      }
     }
 
     // Sync linked phase

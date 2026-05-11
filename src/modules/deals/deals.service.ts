@@ -182,6 +182,16 @@ export class DealsService {
     });
     await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: deal.id, action: 'CREATE', payloadJson: { name: deal.name } });
 
+    // Notify deal owner
+    if (ownerUserId && ownerUserId !== user.userId) {
+      this.notifications.createForUser(
+        ownerUserId, 'DEAL_CREATED',
+        'Neuer Deal erstellt',
+        `"${deal.name}" wurde dir zugewiesen`,
+        'Deal', deal.id, `/deals/${deal.id}`,
+      ).catch(() => {});
+    }
+
     const owner = ownerUserId ? await this.prisma.user.findUnique({ where: { id: ownerUserId } }) : null;
     const creator = await this.prisma.user.findUnique({ where: { id: createdByUserId } });
     const account = deal.accountId ? await this.prisma.account.findUnique({ where: { id: deal.accountId } }) : null;

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService } from '../email/email.service';
 import { Role, PhaseStatus, ProjectStatus } from '@prisma/client';
 import { CreateProjectDto } from './dto/create-project.dto';
@@ -25,6 +26,7 @@ export class ProjectsService {
   constructor(
     private prisma: PrismaService,
     private activityLogger: ActivityLoggerService,
+    private notifications: NotificationsService,
     private email: EmailService,
   ) {}
 
@@ -307,6 +309,17 @@ export class ProjectsService {
       payloadJson: { name: project.name },
     });
 
+    // Notify project members
+    const memberUserIds = project.members.map((m: any) => m.userId).filter((uid: string) => uid !== user.userId);
+    for (const uid of memberUserIds) {
+      this.notifications.createForUser(
+        uid, 'PROJECT_CREATED',
+        'Neues Projekt',
+        `"${project.name}" wurde erstellt`,
+        'Project', project.id, `/projects/${project.id}`,
+      ).catch(() => {});
+    }
+
     const recipients = Array.from(
       new Set(
         [project.owner?.email, ...project.members.map((m) => m.user?.email)].filter(Boolean) as string[],
@@ -488,6 +501,16 @@ export class ProjectsService {
       } else if (isReopening) {
         await this.prisma.task.update({ where: { id: updated.linkedTaskId }, data: { status: 'OPEN' } });
       }
+    }
+
+    // Notify project owner about phase completion
+    if (isCompleting && project.ownerUserId && project.ownerUserId !== user.userId) {
+      this.notifications.createForUser(
+        project.ownerUserId, 'PHASE_COMPLETED',
+        'Phase abgeschlossen',
+        `"${phase.name}" in Projekt "${project.name}" ist abgeschlossen`,
+        'Project', projectId, `/projects/${projectId}`,
+      ).catch(() => {});
     }
 
     // If all phases are done, auto-set project to COMPLETED

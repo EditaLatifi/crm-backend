@@ -63,7 +63,13 @@ model Notification {
 enum NotificationType {
   TASK_ASSIGNED
   TASK_COMMENT
+  TASK_STATUS_CHANGED
+  DEAL_CREATED
   DEAL_STAGE_CHANGED
+  PROJECT_CREATED
+  PHASE_COMPLETED
+  BUDGET_WARNING
+  APPOINTMENT_CREATED
   PERMIT_STATUS_CHANGED
   VACATION_REVIEWED
 }
@@ -119,9 +125,9 @@ model EmailLog {
   entityType     String?
   entityId       String?
   accountId      String?
-  account        Account?       @relation(fields: [accountId], references: [id])
+  account        Account?       @relation(fields: [accountId], references: [id], onDelete: SetNull)
   contactId      String?
-  contact        Contact?       @relation(fields: [contactId], references: [id])
+  contact        Contact?       @relation(fields: [contactId], references: [id], onDelete: SetNull)
   loggedByUserId String
   loggedBy       User           @relation("EmailLogCreator", fields: [loggedByUserId], references: [id])
   loggedAt       DateTime       @default(now())
@@ -147,11 +153,11 @@ model Appointment {
   startAt         DateTime
   endAt           DateTime
   accountId       String?
-  account         Account? @relation(fields: [accountId], references: [id])
+  account         Account? @relation(fields: [accountId], references: [id], onDelete: SetNull)
   contactId       String?
-  contact         Contact? @relation(fields: [contactId], references: [id])
+  contact         Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
   dealId          String?
-  deal            Deal?    @relation(fields: [dealId], references: [id])
+  deal            Deal?    @relation(fields: [dealId], references: [id], onDelete: SetNull)
   createdByUserId String
   creator         User     @relation("AppointmentCreator", fields: [createdByUserId], references: [id])
   assigneeUserId  String?
@@ -333,7 +339,7 @@ enum Currency {
 model Contact {
   id           String        @id @default(uuid())
   accountId    String?
-  account      Account?      @relation(fields: [accountId], references: [id])
+  account      Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
   name         String
   email        String
   phone        String?
@@ -378,7 +384,7 @@ model DealStage {
 model Deal {
   id                String             @id @default(uuid())
   accountId         String
-  account           Account            @relation(fields: [accountId], references: [id])
+  account           Account            @relation(fields: [accountId], references: [id], onDelete: Cascade)
   name              String
   stageId           String
   stage             DealStage          @relation(fields: [stageId], references: [id])
@@ -501,9 +507,9 @@ model Task {
   createdByUserId  String
   creator          User              @relation("TaskCreator", fields: [createdByUserId], references: [id])
   accountId        String?
-  account          Account?          @relation(fields: [accountId], references: [id])
+  account          Account?          @relation(fields: [accountId], references: [id], onDelete: SetNull)
   contactId        String?
-  contact          Contact?          @relation(fields: [contactId], references: [id])
+  contact          Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
   // already has activities and dailyTimeByTask
   dealId           String?
   deal             Deal?             @relation(fields: [dealId], references: [id])
@@ -565,9 +571,9 @@ model TimeEntry {
   userId          String
   user            User          @relation(fields: [userId], references: [id])
   accountId       String
-  account         Account       @relation(fields: [accountId], references: [id])
+  account         Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
   taskId          String?
-  task            Task?         @relation(fields: [taskId], references: [id])
+  task            Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
   projectId       String?
   project         Project?      @relation(fields: [projectId], references: [id])
   projectPhaseId  String?
@@ -590,11 +596,11 @@ model RunningTimer {
   userId         String        @unique
   user           User          @relation(fields: [userId], references: [id])
   accountId      String
-  account        Account       @relation(fields: [accountId], references: [id])
+  account        Account       @relation(fields: [accountId], references: [id], onDelete: Cascade)
   taskId         String?
-  task           Task?         @relation(fields: [taskId], references: [id])
+  task           Task?         @relation(fields: [taskId], references: [id], onDelete: SetNull)
   projectId      String?
-  project        Project?      @relation(fields: [projectId], references: [id])
+  project        Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
   projectPhaseId String?
   projectPhase   ProjectPhase? @relation(fields: [projectPhaseId], references: [id])
   startedAt      DateTime
@@ -630,7 +636,7 @@ model DailyTimeByUser {
 model DailyTimeByAccount {
   date         DateTime
   accountId    String
-  account      Account  @relation(fields: [accountId], references: [id])
+  account      Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
   totalMinutes Int
 
   @@id([date, accountId])
@@ -662,9 +668,9 @@ model Project {
   actualEndDate   DateTime?
   notes           String?
   accountId       String?
-  account         Account?           @relation(fields: [accountId], references: [id])
+  account         Account?           @relation(fields: [accountId], references: [id], onDelete: SetNull)
   dealId          String?            @unique
-  deal            Deal?              @relation(fields: [dealId], references: [id])
+  deal            Deal?              @relation(fields: [dealId], references: [id], onDelete: SetNull)
   ownerUserId     String
   owner           User               @relation("ProjectOwner", fields: [ownerUserId], references: [id])
   createdByUserId String

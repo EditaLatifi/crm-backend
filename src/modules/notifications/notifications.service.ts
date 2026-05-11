@@ -12,7 +12,7 @@ export class NotificationsService {
 
   async createForUser(
     userId: string,
-    type: NotificationType,
+    type: NotificationType | string,
     title: string,
     body: string,
     entityType?: string,
@@ -20,7 +20,7 @@ export class NotificationsService {
     href?: string,
   ) {
     const notification = await this.prisma.notification.create({
-      data: { userId, type, title, body, entityType, entityId, href },
+      data: { userId, type: type as NotificationType, title, body, entityType, entityId, href },
     });
     this.gateway.push(userId, { event: 'notification', data: notification });
     return notification;

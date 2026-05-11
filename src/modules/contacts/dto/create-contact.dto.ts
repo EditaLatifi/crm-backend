@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsDateString } from 'class-validator';
 
 export class CreateContactDto {
   @IsString()
@@ -14,6 +14,18 @@ export class CreateContactDto {
   phone?: string;
 
   @IsString()
-  @IsNotEmpty()
-  accountId!: string;
+  @IsOptional()
+  accountId?: string;
+
+  @IsString()
+  @IsOptional()
+  title?: string;
+
+  @IsString()
+  @IsOptional()
+  notes?: string;
+
+  @IsDateString()
+  @IsOptional()
+  followUpDate?: string;
 }

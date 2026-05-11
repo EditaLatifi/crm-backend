@@ -26,4 +26,16 @@ export class AuthController {
     if (!user) throw new UnauthorizedException();
     return this.authService.login(user);
   }
+
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string }) {
+    await this.authService.requestPasswordReset(body.email);
+    return { message: 'Falls die E-Mail-Adresse existiert, wurde ein Reset-Link gesendet.' };
+  }
+
+  @Post('reset-password')
+  async resetPassword(@Body() body: { token: string; password: string }) {
+    await this.authService.resetPassword(body.token, body.password);
+    return { message: 'Passwort erfolgreich zurückgesetzt.' };
+  }
 }
