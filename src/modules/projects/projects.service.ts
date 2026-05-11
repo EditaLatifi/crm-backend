@@ -119,8 +119,9 @@ export class ProjectsService {
   }
 
   async findAll(user: any) {
-    const isAdmin = user.role === Role.ADMIN;
-    const where = isAdmin
+    // Admin + Projektleiter see all projects; Mitarbeiter/Extern only see assigned
+    const canSeeAll = user.role === Role.ADMIN || user.role === 'PROJEKTLEITER';
+    const where = canSeeAll
       ? {}
       : {
           OR: [
@@ -134,6 +135,7 @@ export class ProjectsService {
       where,
       include: {
         account: { select: { id: true, name: true } },
+        deal: { select: { id: true, name: true } },
         owner: { select: { id: true, name: true, email: true } },
         phases: { orderBy: { order: 'asc' } },
         members: {
@@ -151,6 +153,7 @@ export class ProjectsService {
       where: { id },
       include: {
         account: { select: { id: true, name: true, type: true } },
+        deal: { select: { id: true, name: true, amount: true, currency: true } },
         owner: { select: { id: true, name: true, email: true } },
         creator: { select: { id: true, name: true, email: true } },
         phases: {
@@ -158,6 +161,10 @@ export class ProjectsService {
           include: {
             completedBy: { select: { id: true, name: true } },
             linkedTask: { select: { id: true, title: true, status: true, dueDate: true, assignedToUserId: true, assignee: { select: { id: true, name: true } } } },
+            timeEntries: {
+              select: { id: true, durationMinutes: true, description: true, startedAt: true, user: { select: { id: true, name: true } } },
+              orderBy: { startedAt: 'desc' },
+            },
           },
         },
         members: {

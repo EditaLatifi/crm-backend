@@ -14,7 +14,7 @@
     "@nestjs/platform-express": "^11.1.11",
     "@nestjs/schedule": "^6.1.0",
     "@nestjs/throttler": "^6.5.0",
-    "@prisma/client": "^6.19.2",
+    "@prisma/client": "^6.19.3",
     "@supabase/supabase-js": "^2.99.2",
     "bcryptjs": "^3.0.3",
     "class-transformer": "^0.5.1",
@@ -23,7 +23,6 @@
     "nodemailer": "^8.0.7",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",
-    "prisma": "^6.19.2",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "redis": "^5.10.0",
@@ -38,6 +37,7 @@
     "@types/passport-local": "^1.0.38",
     "@types/react": "^19.2.7",
     "@types/uuid": "^10.0.0",
-    "concurrently": "^9.2.1"
+    "concurrently": "^9.2.1",
+    "prisma": "^6.19.3"
   }
 }

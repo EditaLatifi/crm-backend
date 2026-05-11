@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { Role } from '@prisma/client';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -77,6 +77,34 @@ export class VacationService {
     if (user.role !== Role.ADMIN) throw new ForbiddenException('Nur Admins können Anträge genehmigen');
     const req = await this.prisma.vacationRequest.findUnique({ where: { id } });
     if (!req) throw new NotFoundException('Antrag nicht gefunden');
+
+    // Enforce quota check for VACATION type approvals
+    if (action === 'APPROVED' && req.type === 'VACATION') {
+      const year = req.startDate.getFullYear();
+      const quota = await this.prisma.vacationQuota.findUnique({
+        where: { userId_year: { userId: req.userId, year } },
+      });
+      if (!quota) {
+        throw new BadRequestException(`Kein Urlaubskontingent für ${year} definiert. Bitte zuerst Kontingent festlegen.`);
+      }
+      const usedDays = await this.prisma.vacationRequest.aggregate({
+        where: {
+          userId: req.userId,
+          type: 'VACATION',
+          status: 'APPROVED',
+          id: { not: id },
+          startDate: { gte: new Date(`${year}-01-01`), lte: new Date(`${year}-12-31`) },
+        },
+        _sum: { days: true },
+      });
+      const totalUsed = (usedDays._sum.days || 0) + req.days;
+      if (totalUsed > quota.days) {
+        throw new BadRequestException(
+          `Kontingent überschritten: ${totalUsed} Tage beantragt, ${quota.days} Tage verfügbar (${quota.days - (usedDays._sum.days || 0)} übrig).`
+        );
+      }
+    }
+
     const updated = await this.prisma.vacationRequest.update({
       where: { id },
       data: {

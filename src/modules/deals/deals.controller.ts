@@ -8,6 +8,8 @@ import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
 import { CreateNoteDto } from './dto/create-note.dto';
 import { CreateAttachmentDto } from './dto/create-attachment.dto';
+import { CreatePhasePaymentDto } from './dto/create-phase-payment.dto';
+import { UpdatePhasePaymentDto } from './dto/update-phase-payment.dto';
 
 @Controller('deals')
 @UseGuards(JwtAuthGuard)
@@ -62,6 +64,22 @@ export class DealsController {
     return this.dealsService.deleteAttachment(attachmentId, req.user);
   }
 
+  // ─── Deal Contacts ───
+  @Get(':id/contacts')
+  async listDealContacts(@Param('id') id: string) {
+    return this.dealsService.listDealContacts(id);
+  }
+
+  @Post(':id/contacts')
+  async addDealContact(@Param('id') id: string, @Body() body: { contactId: string }) {
+    return this.dealsService.addDealContact(id, body.contactId);
+  }
+
+  @Delete(':id/contacts/:contactId')
+  async removeDealContact(@Param('id') id: string, @Param('contactId') contactId: string) {
+    return this.dealsService.removeDealContact(id, contactId);
+  }
+
   @Post(':id/change-stage')
   async changeStage(
     @Param('id') id: string,
@@ -104,12 +122,12 @@ export class DealsController {
   }
 
   @Post('phases/:phaseId/payments')
-  async createPayment(@Param('phaseId') phaseId: string, @Body() body: any) {
+  async createPayment(@Param('phaseId') phaseId: string, @Body() body: CreatePhasePaymentDto) {
     return this.dealsService.createPayment(phaseId, body);
   }
 
   @Patch('payments/:paymentId')
-  async updatePayment(@Param('paymentId') paymentId: string, @Body() body: any) {
+  async updatePayment(@Param('paymentId') paymentId: string, @Body() body: UpdatePhasePaymentDto) {
     return this.dealsService.updatePayment(paymentId, body);
   }
 

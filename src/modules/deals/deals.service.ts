@@ -284,7 +284,7 @@ export class DealsService {
   // ─── Deal Phases (with sub-phases) ───
   async listPhases(dealId: string, user?: any) {
     const phases = await this.prisma.dealPhase.findMany({
-      where: { dealId },
+      where: { dealId, parentId: null },
       include: {
         children: {
           include: {
@@ -319,6 +319,8 @@ export class DealsService {
         order,
         parentId: body.parentId || null,
         hourBudget: body.hourBudget ?? null,
+        budgetChf: body.budgetChf ?? null,
+        offeredHours: body.offeredHours ?? null,
         status: body.status ?? 'PENDING',
         dueDate: body.dueDate ? new Date(body.dueDate) : null,
         notes: body.notes ?? null,
@@ -349,6 +351,8 @@ export class DealsService {
         ...(body.code !== undefined && { code: body.code }),
         ...(body.order !== undefined && { order: body.order }),
         ...(body.hourBudget !== undefined && { hourBudget: body.hourBudget }),
+        ...(body.budgetChf !== undefined && { budgetChf: body.budgetChf }),
+        ...(body.offeredHours !== undefined && { offeredHours: body.offeredHours }),
         ...(body.description !== undefined && { description: body.description }),
         ...(body.status !== undefined && { status: body.status }),
         ...(body.dueDate !== undefined && { dueDate: body.dueDate ? new Date(body.dueDate) : null }),
@@ -407,6 +411,27 @@ export class DealsService {
     return { deleted: true };
   }
 
+  // ─── Deal Contacts (n:m) ───
+  async listDealContacts(dealId: string) {
+    return this.prisma.dealContact.findMany({
+      where: { dealId },
+      include: { contact: { select: { id: true, name: true, email: true, phone: true, title: true } } },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async addDealContact(dealId: string, contactId: string) {
+    return this.prisma.dealContact.create({
+      data: { dealId, contactId },
+      include: { contact: { select: { id: true, name: true, email: true, phone: true, title: true } } },
+    });
+  }
+
+  async removeDealContact(dealId: string, contactId: string) {
+    await this.prisma.dealContact.deleteMany({ where: { dealId, contactId } });
+    return { deleted: true };
+  }
+
   async changeStage(dealId: string, dto: { toStageId: string }, user: any) {
     // 1. Find deal
     const deal = await this.prisma.deal.findUnique({ where: { id: dealId } });
@@ -451,6 +476,50 @@ export class DealsService {
         'Deal', dealId, `/deals/${dealId}`,
       ).catch(() => {});
     }
+
+    // Auto-create Project when Deal is won (if no project exists yet)
+    if (toStage.isWon) {
+      const existingProject = await this.prisma.project.findFirst({ where: { dealId } });
+      if (!existingProject) {
+        const account = deal.accountId ? await this.prisma.account.findUnique({ where: { id: deal.accountId } }) : null;
+        try {
+          const newProject = await this.prisma.project.create({
+            data: {
+              name: deal.name,
+              dealId,
+              accountId: deal.accountId,
+              ownerUserId: deal.ownerUserId || user.userId,
+              createdByUserId: user.userId,
+              address: account?.address || '',
+              status: 'ACTIVE',
+              type: 'ARCHITECTURE',
+              currency: deal.currency || 'CHF',
+            },
+          });
+
+          // Sync DealPhases -> ProjectPhases
+          const dealPhases = await this.prisma.dealPhase.findMany({
+            where: { dealId, parentId: null },
+            orderBy: { order: 'asc' },
+          });
+          for (const dp of dealPhases) {
+            await this.prisma.projectPhase.create({
+              data: {
+                projectId: newProject.id,
+                name: dp.name,
+                description: dp.description || undefined,
+                order: dp.order,
+                status: 'PENDING',
+                budgetHours: dp.hourBudget || undefined,
+              },
+            }).catch(() => {});
+          }
+        } catch (err: any) {
+          console.error('[Deals] Auto-create project failed:', err.message);
+        }
+      }
+    }
+
     return updatedDeal;
   }
 }

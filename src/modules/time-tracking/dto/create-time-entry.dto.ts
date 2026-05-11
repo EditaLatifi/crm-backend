@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsDateString, IsInt, Min } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsInt, Min, Max } from 'class-validator';
 
 export class CreateTimeEntryDto {
   @IsString()
@@ -19,8 +19,10 @@ export class CreateTimeEntryDto {
 
   @IsInt()
   @Min(1)
+  @Max(840) // 14 hours * 60 minutes = 840 minutes max per entry
   durationMinutes!: number;
 
+  @IsOptional()
   @IsString()
   taskId?: string;
 }

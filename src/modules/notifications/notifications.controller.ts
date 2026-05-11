@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Patch, Delete, Param, Req, Res, UseGuards,
+  Controller, Get, Patch, Delete, Param, Req, Res, Body, UseGuards,
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { SkipThrottle } from '@nestjs/throttler';
@@ -73,5 +73,19 @@ export class NotificationsController {
   deleteOne(@Param('id') id: string, @Req() req: Request) {
     const userId = (req as any).user?.userId;
     return this.notificationsService.deleteOne(id, userId);
+  }
+
+  /** Get notification preferences for current user */
+  @Get('preferences')
+  getPreferences(@Req() req: Request) {
+    const userId = (req as any).user?.userId;
+    return this.notificationsService.getPreferences(userId);
+  }
+
+  /** Update notification preferences for current user */
+  @Patch('preferences')
+  updatePreferences(@Req() req: Request, @Body() body: any) {
+    const userId = (req as any).user?.userId;
+    return this.notificationsService.updatePreferences(userId, body);
   }
 }

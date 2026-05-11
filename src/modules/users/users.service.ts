@@ -24,6 +24,9 @@ export class UsersService {
 
   async findAll() {
     return this.prisma.user.findMany({
+      where: {
+        email: { not: 'anonymous@crm.local' },
+      },
       select: {
         id: true, email: true, name: true, role: true, createdAt: true, lastLoginAt: true,
         pensumPercent: true, hoursPerWeek: true, hoursPerYear: true, vacationDaysYearly: true,
@@ -46,17 +49,29 @@ export class UsersService {
   ) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) throw new NotFoundException('User not found');
+
+    // Auto-calculate hours from Pensum if pensumPercent is provided
+    const updateData: any = {
+      ...(data.role !== undefined && { role: data.role as Role }),
+      ...(data.name !== undefined && { name: data.name }),
+      ...(data.email !== undefined && { email: data.email }),
+      ...(data.pensumPercent !== undefined && { pensumPercent: data.pensumPercent }),
+      ...(data.hoursPerWeek !== undefined && { hoursPerWeek: data.hoursPerWeek }),
+      ...(data.hoursPerYear !== undefined && { hoursPerYear: data.hoursPerYear }),
+      ...(data.vacationDaysYearly !== undefined && { vacationDaysYearly: data.vacationDaysYearly }),
+    };
+
+    // Auto-calculate: 100% = 42h/week, proportional
+    if (data.pensumPercent !== undefined && data.pensumPercent !== null) {
+      const hpw = Math.round((42 * data.pensumPercent / 100) * 10) / 10;
+      const hpy = Math.round(hpw * 52 * 10) / 10;
+      if (data.hoursPerWeek === undefined) updateData.hoursPerWeek = hpw;
+      if (data.hoursPerYear === undefined) updateData.hoursPerYear = hpy;
+    }
+
     return this.prisma.user.update({
       where: { id },
-      data: {
-        ...(data.role !== undefined && { role: data.role as Role }),
-        ...(data.name !== undefined && { name: data.name }),
-        ...(data.email !== undefined && { email: data.email }),
-        ...(data.pensumPercent !== undefined && { pensumPercent: data.pensumPercent }),
-        ...(data.hoursPerWeek !== undefined && { hoursPerWeek: data.hoursPerWeek }),
-        ...(data.hoursPerYear !== undefined && { hoursPerYear: data.hoursPerYear }),
-        ...(data.vacationDaysYearly !== undefined && { vacationDaysYearly: data.vacationDaysYearly }),
-      },
+      data: updateData,
       select: {
         id: true, email: true, name: true, role: true, createdAt: true, lastLoginAt: true,
         pensumPercent: true, hoursPerWeek: true, hoursPerYear: true, vacationDaysYearly: true,

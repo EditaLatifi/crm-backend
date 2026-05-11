@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
+const uuidv4 = randomUUID;
 
 const BUCKET = 'project-documents';
 

@@ -1,19 +1,19 @@
 model VacationRequest {
-  id          String              @id @default(uuid())
-  userId      String
-  user        User                @relation("VacationRequests", fields: [userId], references: [id])
-  startDate   DateTime
-  endDate     DateTime
-  days        Int
-  type        VacationType        @default(VACATION)
-  status      VacationStatus      @default(PENDING)
-  note        String?
-  adminNote   String?
+  id               String         @id @default(uuid())
+  userId           String
+  user             User           @relation("VacationRequests", fields: [userId], references: [id])
+  startDate        DateTime
+  endDate          DateTime
+  days             Int
+  type             VacationType   @default(VACATION)
+  status           VacationStatus @default(PENDING)
+  note             String?
+  adminNote        String?
   reviewedByUserId String?
-  reviewedBy  User?               @relation("VacationReviewer", fields: [reviewedByUserId], references: [id])
-  reviewedAt  DateTime?
-  createdAt   DateTime            @default(now())
-  updatedAt   DateTime            @updatedAt
+  reviewedBy       User?          @relation("VacationReviewer", fields: [reviewedByUserId], references: [id])
+  reviewedAt       DateTime?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
 }
 
 enum VacationType {
@@ -38,6 +38,7 @@ model VacationQuota {
   days      Int
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
   @@unique([userId, year])
   @@index([year])
 }
@@ -67,23 +68,39 @@ enum NotificationType {
   VACATION_REVIEWED
 }
 
+model NotificationPreference {
+  id                     String   @id @default(uuid())
+  userId                 String   @unique
+  user                   User     @relation("NotificationPrefs", fields: [userId], references: [id], onDelete: Cascade)
+  emailOnTaskAssigned    Boolean  @default(true)
+  emailOnTaskComment     Boolean  @default(true)
+  emailOnDealCreated     Boolean  @default(true)
+  emailOnDealStageChange Boolean  @default(true)
+  emailOnDueDate         Boolean  @default(true)
+  emailOnFollowUp        Boolean  @default(true)
+  emailOnPaymentDue      Boolean  @default(true)
+  emailOnVacation        Boolean  @default(true)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+}
+
 model EmailLog {
-  id          String   @id @default(uuid())
-  subject     String
-  body        String?
-  direction   EmailDirection @default(OUTBOUND)
-  recipient   String?
-  status      EmailLogStatus @default(SUCCESS)
-  errorMessage String?
-  entityType  String?
-  entityId    String?
-  accountId   String?
-  account     Account?  @relation(fields: [accountId], references: [id])
-  contactId   String?
-  contact     Contact?  @relation(fields: [contactId], references: [id])
+  id             String         @id @default(uuid())
+  subject        String
+  body           String?
+  direction      EmailDirection @default(OUTBOUND)
+  recipient      String?
+  status         EmailLogStatus @default(SUCCESS)
+  errorMessage   String?
+  entityType     String?
+  entityId       String?
+  accountId      String?
+  account        Account?       @relation(fields: [accountId], references: [id])
+  contactId      String?
+  contact        Contact?       @relation(fields: [contactId], references: [id])
   loggedByUserId String
-  loggedBy    User      @relation("EmailLogCreator", fields: [loggedByUserId], references: [id])
-  loggedAt    DateTime  @default(now())
+  loggedBy       User           @relation("EmailLogCreator", fields: [loggedByUserId], references: [id])
+  loggedAt       DateTime       @default(now())
 
   @@index([status])
   @@index([entityType, entityId])
@@ -100,23 +117,23 @@ enum EmailDirection {
 }
 
 model Appointment {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  startAt     DateTime
-  endAt       DateTime
-  accountId   String?
-  account     Account?  @relation(fields: [accountId], references: [id])
-  contactId   String?
-  contact     Contact?  @relation(fields: [contactId], references: [id])
-  dealId      String?
-  deal        Deal?     @relation(fields: [dealId], references: [id])
+  id              String   @id @default(uuid())
+  title           String
+  description     String?
+  startAt         DateTime
+  endAt           DateTime
+  accountId       String?
+  account         Account? @relation(fields: [accountId], references: [id])
+  contactId       String?
+  contact         Contact? @relation(fields: [contactId], references: [id])
+  dealId          String?
+  deal            Deal?    @relation(fields: [dealId], references: [id])
   createdByUserId String
-  creator     User      @relation("AppointmentCreator", fields: [createdByUserId], references: [id])
-  assigneeUserId String?
-  assignee    User?     @relation("AppointmentAssignee", fields: [assigneeUserId], references: [id])
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  creator         User     @relation("AppointmentCreator", fields: [createdByUserId], references: [id])
+  assigneeUserId  String?
+  assignee        User?    @relation("AppointmentAssignee", fields: [assigneeUserId], references: [id])
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@index([startAt])
   @@index([createdByUserId])
@@ -124,27 +141,28 @@ model Appointment {
 }
 
 model Attachment {
-  id        String   @id @default(uuid())
-  dealId    String
-  deal      Deal     @relation(fields: [dealId], references: [id])
-  url       String
-  filename  String
-  mimeType  String?
-  size      Int?
+  id               String   @id @default(uuid())
+  dealId           String
+  deal             Deal     @relation(fields: [dealId], references: [id])
+  url              String
+  filename         String
+  mimeType         String?
+  size             Int?
   uploadedByUserId String
-  uploadedBy User   @relation("uploadedBy", fields: [uploadedByUserId], references: [id])
-  createdAt DateTime @default(now())
+  uploadedBy       User     @relation("uploadedBy", fields: [uploadedByUserId], references: [id])
+  createdAt        DateTime @default(now())
 }
 
 model Note {
-  id        String   @id @default(uuid())
-  dealId    String
-  deal      Deal     @relation(fields: [dealId], references: [id])
-  content   String
+  id              String   @id @default(uuid())
+  dealId          String
+  deal            Deal     @relation(fields: [dealId], references: [id])
+  content         String
   createdByUserId String
-  createdBy User   @relation("createdBy", fields: [createdByUserId], references: [id])
-  createdAt DateTime @default(now())
+  createdBy       User     @relation("createdBy", fields: [createdByUserId], references: [id])
+  createdAt       DateTime @default(now())
 }
+
 model Comment {
   id        String   @id @default(uuid())
   taskId    String
@@ -165,6 +183,7 @@ model TaskHistory {
   userId    String
   user      User     @relation("UserTaskHistory", fields: [userId], references: [id])
 }
+
 // This is the main Prisma schema for the CRM system
 // It covers all required entities and relationships
 
@@ -178,89 +197,93 @@ datasource db {
 }
 
 model User {
-  id           String   @id @default(uuid())
-  email        String   @unique
-  passwordHash String
-  name         String
-  role         Role
-  lastLoginAt  DateTime?
-  pensumPercent      Int?
-  hoursPerWeek       Float?
-  hoursPerYear       Float?
-  vacationDaysYearly Int?
-  createdAt    DateTime @default(now())
-  accounts     Account[] @relation("AccountOwner")
-  createdAccounts Account[] @relation("AccountCreator")
-  deals        Deal[]    @relation("DealOwner")
-  createdDeals Deal[]    @relation("DealCreator")
-  assignedTasks Task[]   @relation("TaskAssignee")
-  createdTasks Task[]    @relation("TaskCreator")
-  timeEntries  TimeEntry[]
-  runningTimer RunningTimer?
-  activities   Activity[] @relation("ActivityActor")
-  dailyTimeByUser DailyTimeByUser[]
-  dealStageHistories DealStageHistory[]
-  comments     Comment[] @relation("UserComments")
-  taskHistory  TaskHistory[] @relation("UserTaskHistory")
-  uploadedAttachments Attachment[] @relation("uploadedBy")
-  createdNotes Note[] @relation("createdBy")
-  appointments     Appointment[]    @relation("AppointmentCreator")
-  assignedAppointments Appointment[] @relation("AppointmentAssignee")
-  emailLogs        EmailLog[]       @relation("EmailLogCreator")
-  vacationRequests VacationRequest[] @relation("VacationRequests")
-  reviewedVacations VacationRequest[] @relation("VacationReviewer")
-  vacationQuotas   VacationQuota[]  @relation("VacationQuotas")
-  ownedProjects      Project[]         @relation("ProjectOwner")
-  createdProjects    Project[]         @relation("ProjectCreator")
-  projectMemberships ProjectMember[]   @relation("ProjectMembers")
-  completedPhases    ProjectPhase[]    @relation("PhaseCompletedBy")
-  createdPermits     Permit[]          @relation("PermitCreator")
-  permitHistories    PermitHistory[]   @relation("PermitHistoryActor")
-  createdVendors     Vendor[]          @relation("VendorCreator")
-  budgetItems        BudgetItem[]      @relation("BudgetItemCreator")
-  projectDocuments   ProjectDocument[] @relation("DocumentUploader")
-  taskDocuments      TaskDocument[]    @relation("TaskDocUploader")
-  projectShares      ProjectShare[]    @relation("ShareCreator")
-  notifications      Notification[]    @relation("UserNotifications")
-  dealPhases         DealPhase[]       @relation("DealPhaseResponsible")
+  id                   String                  @id @default(uuid())
+  email                String                  @unique
+  passwordHash         String
+  name                 String
+  role                 Role
+  lastLoginAt          DateTime?
+  pensumPercent        Int?
+  hoursPerWeek         Float?
+  hoursPerYear         Float?
+  vacationDaysYearly   Int?
+  createdAt            DateTime                @default(now())
+  accounts             Account[]               @relation("AccountOwner")
+  createdAccounts      Account[]               @relation("AccountCreator")
+  deals                Deal[]                  @relation("DealOwner")
+  createdDeals         Deal[]                  @relation("DealCreator")
+  assignedTasks        Task[]                  @relation("TaskAssignee")
+  createdTasks         Task[]                  @relation("TaskCreator")
+  timeEntries          TimeEntry[]
+  runningTimer         RunningTimer?
+  activities           Activity[]              @relation("ActivityActor")
+  dailyTimeByUser      DailyTimeByUser[]
+  dealStageHistories   DealStageHistory[]
+  comments             Comment[]               @relation("UserComments")
+  taskHistory          TaskHistory[]           @relation("UserTaskHistory")
+  uploadedAttachments  Attachment[]            @relation("uploadedBy")
+  createdNotes         Note[]                  @relation("createdBy")
+  appointments         Appointment[]           @relation("AppointmentCreator")
+  assignedAppointments Appointment[]           @relation("AppointmentAssignee")
+  emailLogs            EmailLog[]              @relation("EmailLogCreator")
+  vacationRequests     VacationRequest[]       @relation("VacationRequests")
+  reviewedVacations    VacationRequest[]       @relation("VacationReviewer")
+  vacationQuotas       VacationQuota[]         @relation("VacationQuotas")
+  ownedProjects        Project[]               @relation("ProjectOwner")
+  createdProjects      Project[]               @relation("ProjectCreator")
+  projectMemberships   ProjectMember[]         @relation("ProjectMembers")
+  completedPhases      ProjectPhase[]          @relation("PhaseCompletedBy")
+  createdPermits       Permit[]                @relation("PermitCreator")
+  permitHistories      PermitHistory[]         @relation("PermitHistoryActor")
+  createdVendors       Vendor[]                @relation("VendorCreator")
+  budgetItems          BudgetItem[]            @relation("BudgetItemCreator")
+  projectDocuments     ProjectDocument[]       @relation("DocumentUploader")
+  taskDocuments        TaskDocument[]          @relation("TaskDocUploader")
+  projectShares        ProjectShare[]          @relation("ShareCreator")
+  notifications        Notification[]          @relation("UserNotifications")
+  notificationPrefs    NotificationPreference? @relation("NotificationPrefs")
+  dealPhases           DealPhase[]             @relation("DealPhaseResponsible")
 }
 
 enum Role {
   ADMIN
-  USER
+  PROJEKTLEITER
+  MITARBEITER
+  EXTERN
+  USER // kept for backward compatibility, treated as MITARBEITER
 }
 
 model Account {
-  id             String    @id @default(uuid())
-  name           String
-  type           AccountType
-  address        String?
-  addressStreet  String?
-  addressNumber  String?
-  addressZip     String?
-  addressCity    String?
-  addressCanton  String?
-  phone          String?
-  email          String?
-  notes          String?
-  ownerUserId    String?
-  owner          User?     @relation("AccountOwner", fields: [ownerUserId], references: [id])
-  createdByUserId String
-  creator        User      @relation("AccountCreator", fields: [createdByUserId], references: [id])
-  contacts       Contact[]
-  deals          Deal[]
-  tasks          Task[]
-  timeEntries    TimeEntry[]
-  runningTimers  RunningTimer[]
-  appointments   Appointment[]
-  emailLogs      EmailLog[]
-  projects       Project[]
-  projectSuppliers ProjectSupplier[]
-  vendorType     VendorType?
-  rating         Int?
-  contactPerson  String?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id                 String               @id @default(uuid())
+  name               String
+  type               AccountType
+  address            String?
+  addressStreet      String?
+  addressNumber      String?
+  addressZip         String?
+  addressCity        String?
+  addressCanton      String?
+  phone              String?
+  email              String?
+  notes              String?
+  ownerUserId        String?
+  owner              User?                @relation("AccountOwner", fields: [ownerUserId], references: [id])
+  createdByUserId    String
+  creator            User                 @relation("AccountCreator", fields: [createdByUserId], references: [id])
+  contacts           Contact[]
+  deals              Deal[]
+  tasks              Task[]
+  timeEntries        TimeEntry[]
+  runningTimers      RunningTimer[]
+  appointments       Appointment[]
+  emailLogs          EmailLog[]
+  projects           Project[]
+  projectSuppliers   ProjectSupplier[]
+  vendorType         VendorType?
+  rating             Int?
+  contactPerson      String?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
   dailyTimeByAccount DailyTimeByAccount[]
 
   @@unique([name])
@@ -282,62 +305,78 @@ enum Currency {
 }
 
 model Contact {
-  id           String    @id @default(uuid())
+  id           String        @id @default(uuid())
   accountId    String?
-  account      Account?  @relation(fields: [accountId], references: [id])
+  account      Account?      @relation(fields: [accountId], references: [id])
   name         String
   email        String
   phone        String?
   title        String?
   notes        String?
   followUpDate DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   tasks        Task[]
   appointments Appointment[]
   emailLogs    EmailLog[]
+  dealContacts DealContact[]
 
   @@index([accountId])
   @@index([followUpDate])
 }
 
+model DealContact {
+  id        String   @id @default(uuid())
+  dealId    String
+  deal      Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  contactId String
+  contact   Contact  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([dealId, contactId])
+  @@index([dealId])
+  @@index([contactId])
+}
+
 model DealStage {
-  id      String  @id @default(uuid())
-  name    String
-  order   Int
-  isWon   Boolean @default(false)
-  isLost  Boolean @default(false)
-    deals   Deal[]
-    histories DealStageHistory[] @relation("ToStage")
-    fromHistories DealStageHistory[] @relation("FromStage")
+  id            String             @id @default(uuid())
+  name          String
+  order         Int
+  isWon         Boolean            @default(false)
+  isLost        Boolean            @default(false)
+  deals         Deal[]
+  histories     DealStageHistory[] @relation("ToStage")
+  fromHistories DealStageHistory[] @relation("FromStage")
 }
 
 model Deal {
-  id             String   @id @default(uuid())
-  accountId      String
-  account        Account  @relation(fields: [accountId], references: [id])
-  name           String
-  stageId        String
-  stage          DealStage @relation(fields: [stageId], references: [id])
-  amount         Float
-  currency       Currency @default(CHF)
+  id                String             @id @default(uuid())
+  accountId         String
+  account           Account            @relation(fields: [accountId], references: [id])
+  name              String
+  stageId           String
+  stage             DealStage          @relation(fields: [stageId], references: [id])
+  amount            Float
+  currency          Currency           @default(CHF)
   expectedCloseDate DateTime
-  followUpDate   DateTime?
-  phases         Json?  // SIA Leistungsphasen array, e.g. [31, 52]
-  phaseBudgets   Json?  // Hour budgets per phase, e.g. {"31.1": 40, "52": 100}
-  customFields   Json? // Flexible custom fields per deal
-  ownerUserId    String?
-  owner          User?    @relation("DealOwner", fields: [ownerUserId], references: [id])
-  createdByUserId String
-  creator        User     @relation("DealCreator", fields: [createdByUserId], references: [id])
-  tasks          Task[]
-  attachments    Attachment[]
-  notes          Note[]
-  stageHistories DealStageHistory[]
-  appointments   Appointment[]
-  dealPhases     DealPhase[]
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  followUpDate      DateTime?
+  phases            Json? // SIA Leistungsphasen array, e.g. [31, 52]
+  phaseBudgets      Json? // Hour budgets per phase, e.g. {"31.1": 40, "52": 100}
+  customFields      Json? // Flexible custom fields per deal
+  ownerUserId       String?
+  owner             User?              @relation("DealOwner", fields: [ownerUserId], references: [id])
+  createdByUserId   String
+  creator           User               @relation("DealCreator", fields: [createdByUserId], references: [id])
+  tasks             Task[]
+  attachments       Attachment[]
+  notes             Note[]
+  stageHistories    DealStageHistory[]
+  appointments      Appointment[]
+  dealPhases        DealPhase[]
+  dealContacts      DealContact[]
+  project           Project?
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([stageId])
   @@index([accountId])
@@ -348,38 +387,40 @@ model Deal {
 }
 
 model DealStageHistory {
-  id            String   @id @default(uuid())
-  dealId        String
-  deal          Deal     @relation(fields: [dealId], references: [id])
-  fromStageId   String?
-  toStageId     String
-  toStage       DealStage  @relation("ToStage", fields: [toStageId], references: [id])
-  fromStage     DealStage? @relation("FromStage", fields: [fromStageId], references: [id])
+  id              String     @id @default(uuid())
+  dealId          String
+  deal            Deal       @relation(fields: [dealId], references: [id])
+  fromStageId     String?
+  toStageId       String
+  toStage         DealStage  @relation("ToStage", fields: [toStageId], references: [id])
+  fromStage       DealStage? @relation("FromStage", fields: [fromStageId], references: [id])
   changedByUserId String
-  changedBy     User      @relation(fields: [changedByUserId], references: [id])
-  changedAt     DateTime  @default(now())
+  changedBy       User       @relation(fields: [changedByUserId], references: [id])
+  changedAt       DateTime   @default(now())
 }
 
 model DealPhase {
-  id                String   @id @default(uuid())
+  id                String             @id @default(uuid())
   dealId            String
-  deal              Deal     @relation(fields: [dealId], references: [id], onDelete: Cascade)
+  deal              Deal               @relation(fields: [dealId], references: [id], onDelete: Cascade)
   code              String
   name              String
   description       String?
   order             Int
   parentId          String?
-  parent            DealPhase?  @relation("PhaseChildren", fields: [parentId], references: [id], onDelete: Cascade)
-  children          DealPhase[] @relation("PhaseChildren")
+  parent            DealPhase?         @relation("PhaseChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children          DealPhase[]        @relation("PhaseChildren")
   hourBudget        Float?
-  status            DealPhaseStatus @default(PENDING)
+  budgetChf         Float?
+  offeredHours      Float?
+  status            DealPhaseStatus    @default(PENDING)
   dueDate           DateTime?
   notes             String?
   responsibleUserId String?
-  responsible       User?       @relation("DealPhaseResponsible", fields: [responsibleUserId], references: [id])
+  responsible       User?              @relation("DealPhaseResponsible", fields: [responsibleUserId], references: [id])
   payments          DealPhasePayment[]
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
 
   @@index([dealId])
   @@index([parentId])
@@ -421,40 +462,40 @@ model DealSubPhaseTemplate {
 }
 
 model Task {
-  id              String   @id @default(uuid())
-  linkedFromPhase ProjectPhase? @relation("PhaseLinkedTask")
-  title           String
-  description     String?
-  status          TaskStatus
-  priority        TaskPriority
-  dueDate         DateTime?
+  id               String            @id @default(uuid())
+  linkedFromPhase  ProjectPhase?     @relation("PhaseLinkedTask")
+  title            String
+  description      String?
+  status           TaskStatus
+  priority         TaskPriority
+  dueDate          DateTime?
   assignedToUserId String?
-  assignee        User?    @relation("TaskAssignee", fields: [assignedToUserId], references: [id])
-  createdByUserId String
-  creator         User     @relation("TaskCreator", fields: [createdByUserId], references: [id])
-  accountId       String?
-  account         Account? @relation(fields: [accountId], references: [id])
-  contactId       String?
-  contact         Contact? @relation(fields: [contactId], references: [id])
+  assignee         User?             @relation("TaskAssignee", fields: [assignedToUserId], references: [id])
+  createdByUserId  String
+  creator          User              @relation("TaskCreator", fields: [createdByUserId], references: [id])
+  accountId        String?
+  account          Account?          @relation(fields: [accountId], references: [id])
+  contactId        String?
+  contact          Contact?          @relation(fields: [contactId], references: [id])
   // already has activities and dailyTimeByTask
-  dealId          String?
-  deal            Deal?    @relation(fields: [dealId], references: [id])
-  projectId       String?
-  project         Project? @relation("ProjectTasks", fields: [projectId], references: [id])
-  phase           String?  // SIA Leistungsphase code e.g. "31.1", "52"
-  specification   String?  // Free text specification
-  assigneeIds     Json?    // Additional assignee user IDs array
-  budgetHours     Float?   // Hour budget for this task
-  checklists      Json?    // Array of { id, title, items: [{ id, text, done }] }
-  documents       TaskDocument[]
-  timeEntries     TimeEntry[]
-  runningTimers   RunningTimer[]
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  dailyTimeByTask DailyTimeByTask[]
-  comments        Comment[] @relation("TaskComments")
-  history         TaskHistory[] @relation("TaskHistory")
-  estimate        Int?
+  dealId           String?
+  deal             Deal?             @relation(fields: [dealId], references: [id])
+  projectId        String?
+  project          Project?          @relation("ProjectTasks", fields: [projectId], references: [id])
+  phase            String? // SIA Leistungsphase code e.g. "31.1", "52"
+  specification    String? // Free text specification
+  assigneeIds      Json? // Additional assignee user IDs array
+  budgetHours      Float? // Hour budget for this task
+  checklists       Json? // Array of { id, title, items: [{ id, text, done }] }
+  documents        TaskDocument[]
+  timeEntries      TimeEntry[]
+  runningTimers    RunningTimer[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  dailyTimeByTask  DailyTimeByTask[]
+  comments         Comment[]         @relation("TaskComments")
+  history          TaskHistory[]     @relation("TaskHistory")
+  estimate         Int?
 
   @@index([status])
   @@index([dueDate])
@@ -475,6 +516,7 @@ model TaskDocument {
   uploadedByUserId String
   uploadedBy       User     @relation("TaskDocUploader", fields: [uploadedByUserId], references: [id])
   createdAt        DateTime @default(now())
+
   @@index([taskId])
 }
 
@@ -488,44 +530,48 @@ enum TaskPriority {
   LOW
   MEDIUM
   HIGH
+  URGENT
 }
 
 model TimeEntry {
-  id          String   @id @default(uuid())
-  userId      String
-  user        User     @relation(fields: [userId], references: [id])
-  accountId   String
-  account     Account  @relation(fields: [accountId], references: [id])
-  taskId      String?
-  task        Task?    @relation(fields: [taskId], references: [id])
-  projectId   String?
-  project     Project? @relation(fields: [projectId], references: [id])
-  projectPhaseId String?
-  projectPhase   ProjectPhase? @relation(fields: [projectPhaseId], references: [id])
-  startedAt   DateTime
-  endedAt     DateTime
+  id              String        @id @default(uuid())
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  accountId       String
+  account         Account       @relation(fields: [accountId], references: [id])
+  taskId          String?
+  task            Task?         @relation(fields: [taskId], references: [id])
+  projectId       String?
+  project         Project?      @relation(fields: [projectId], references: [id])
+  projectPhaseId  String?
+  projectPhase    ProjectPhase? @relation(fields: [projectPhaseId], references: [id])
+  startedAt       DateTime
+  endedAt         DateTime
   durationMinutes Int
-  phase       String?
-  description String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  phase           String?
+  description     String?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
   @@index([userId, startedAt])
   @@index([accountId, startedAt])
   @@index([projectPhaseId])
 }
 
 model RunningTimer {
-  id          String   @id @default(uuid())
-  userId      String   @unique
-  user        User     @relation(fields: [userId], references: [id])
-  accountId   String
-  account     Account  @relation(fields: [accountId], references: [id])
-  taskId      String?
-  task        Task?    @relation(fields: [taskId], references: [id])
-  projectId   String?
-  project     Project? @relation(fields: [projectId], references: [id])
-  startedAt   DateTime
-  description String?
+  id             String        @id @default(uuid())
+  userId         String        @unique
+  user           User          @relation(fields: [userId], references: [id])
+  accountId      String
+  account        Account       @relation(fields: [accountId], references: [id])
+  taskId         String?
+  task           Task?         @relation(fields: [taskId], references: [id])
+  projectId      String?
+  project        Project?      @relation(fields: [projectId], references: [id])
+  projectPhaseId String?
+  projectPhase   ProjectPhase? @relation(fields: [projectPhaseId], references: [id])
+  startedAt      DateTime
+  description    String?
 }
 
 model Activity {
@@ -537,59 +583,65 @@ model Activity {
   action      String
   payloadJson Json
   createdAt   DateTime @default(now())
+
   // Relations for filtering
-    // No foreign keys for entityId (polymorphic reference)
+  // No foreign keys for entityId (polymorphic reference)
   @@index([entityType, entityId])
   @@index([createdAt])
 }
 
 // Optional: Daily Aggregates
 model DailyTimeByUser {
-  date      DateTime
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
+  date         DateTime
+  userId       String
+  user         User     @relation(fields: [userId], references: [id])
   totalMinutes Int
+
   @@id([date, userId])
 }
 
 model DailyTimeByAccount {
-  date      DateTime
-  accountId String
-  account   Account  @relation(fields: [accountId], references: [id])
+  date         DateTime
+  accountId    String
+  account      Account  @relation(fields: [accountId], references: [id])
   totalMinutes Int
+
   @@id([date, accountId])
 }
 
 model DailyTimeByTask {
-  date      DateTime
-  taskId    String
-  task      Task     @relation(fields: [taskId], references: [id])
+  date         DateTime
+  taskId       String
+  task         Task     @relation(fields: [taskId], references: [id])
   totalMinutes Int
+
   @@id([date, taskId])
 }
 
 // ─── Project Phase Tracker ───────────────────────────────────────────────────
 
 model Project {
-  id              String        @id @default(uuid())
+  id              String             @id @default(uuid())
   name            String
   description     String?
-  status          ProjectStatus @default(ACTIVE)
-  type            ProjectType   @default(ARCHITECTURE)
+  status          ProjectStatus      @default(ACTIVE)
+  type            ProjectType        @default(ARCHITECTURE)
   address         String
   budget          Float?
   budgetHours     Float?
-  currency        Currency      @default(CHF)
+  currency        Currency           @default(CHF)
   startDate       DateTime?
   expectedEndDate DateTime?
   actualEndDate   DateTime?
   notes           String?
   accountId       String?
-  account         Account?      @relation(fields: [accountId], references: [id])
+  account         Account?           @relation(fields: [accountId], references: [id])
+  dealId          String?            @unique
+  deal            Deal?              @relation(fields: [dealId], references: [id])
   ownerUserId     String
-  owner           User          @relation("ProjectOwner", fields: [ownerUserId], references: [id])
+  owner           User               @relation("ProjectOwner", fields: [ownerUserId], references: [id])
   createdByUserId String
-  creator         User          @relation("ProjectCreator", fields: [createdByUserId], references: [id])
+  creator         User               @relation("ProjectCreator", fields: [createdByUserId], references: [id])
   phases          ProjectPhase[]
   members         ProjectMember[]
   permits         Permit[]
@@ -600,10 +652,10 @@ model Project {
   shares          ProjectShare[]
   timeEntries     TimeEntry[]
   runningTimers   RunningTimer[]
-  tasks           Task[]        @relation("ProjectTasks")
+  tasks           Task[]             @relation("ProjectTasks")
   milestones      ProjectMilestone[]
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
 
   @@index([ownerUserId])
   @@index([accountId])
@@ -611,25 +663,26 @@ model Project {
 }
 
 model ProjectPhase {
-  id                String      @id @default(uuid())
+  id                String         @id @default(uuid())
   projectId         String
-  project           Project     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project           Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   name              String
   description       String?
   order             Int
-  status            PhaseStatus @default(PENDING)
+  status            PhaseStatus    @default(PENDING)
   startDate         DateTime?
   endDate           DateTime?
   notes             String?
   budgetHours       Float?
   completedAt       DateTime?
   completedByUserId String?
-  completedBy       User?       @relation("PhaseCompletedBy", fields: [completedByUserId], references: [id])
-  linkedTaskId      String?     @unique
-  linkedTask        Task?       @relation("PhaseLinkedTask", fields: [linkedTaskId], references: [id])
+  completedBy       User?          @relation("PhaseCompletedBy", fields: [completedByUserId], references: [id])
+  linkedTaskId      String?        @unique
+  linkedTask        Task?          @relation("PhaseLinkedTask", fields: [linkedTaskId], references: [id])
   timeEntries       TimeEntry[]
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  runningTimers     RunningTimer[]
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   @@index([projectId])
   @@index([status])
@@ -683,9 +736,9 @@ model ProjectTemplate {
   name                String
   type                ProjectType
   description         String?
-  defaultPhases       Json?       // [{ name, description, order, budgetHours? }]
-  defaultMilestoneIds Json?       // [milestoneId, ...]
-  defaultBudgetItems  Json?       // [{ category, description, estimatedCost, phase? }]
+  defaultPhases       Json? // [{ name, description, order, budgetHours? }]
+  defaultMilestoneIds Json? // [milestoneId, ...]
+  defaultBudgetItems  Json? // [{ category, description, estimatedCost, phase? }]
   active              Boolean     @default(true)
   createdAt           DateTime    @default(now())
   updatedAt           DateTime    @updatedAt
@@ -694,29 +747,29 @@ model ProjectTemplate {
 // ─── Construction Progress Milestones (Bauforschritt) ─────────────────────────
 
 model ConstructionMilestone {
-  id        String   @id @default(uuid())
-  name      String
-  order     Int
-  isDefault Boolean  @default(true)
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                String             @id @default(uuid())
+  name              String
+  order             Int
+  isDefault         Boolean            @default(true)
+  active            Boolean            @default(true)
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
   projectMilestones ProjectMilestone[]
 
   @@index([order])
 }
 
 model ProjectMilestone {
-  id          String   @id @default(uuid())
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  milestoneId String
-  milestone   ConstructionMilestone @relation(fields: [milestoneId], references: [id])
-  order       Int
-  completed   Boolean  @default(false)
-  completedAt DateTime?
+  id                String                @id @default(uuid())
+  projectId         String
+  project           Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId       String
+  milestone         ConstructionMilestone @relation(fields: [milestoneId], references: [id])
+  order             Int
+  completed         Boolean               @default(false)
+  completedAt       DateTime?
   completedByUserId String?
-  comment     String?
+  comment           String?
 
   @@unique([projectId, milestoneId])
   @@index([projectId])
@@ -725,38 +778,38 @@ model ProjectMilestone {
 // ─── Building Permit Pipeline ─────────────────────────────────────────────────
 
 model Permit {
-  id                  String         @id @default(uuid())
-  projectId           String
-  project             Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  title               String
-  authority           String?
-  referenceNumber     String?
-  status              PermitStatus   @default(VORBEREITUNG)
-  submittedAt         DateTime?
-  expectedDecisionAt  DateTime?
-  decidedAt           DateTime?
-  notes               String?
-  documents           Json?
-  createdByUserId     String
-  creator             User           @relation("PermitCreator", fields: [createdByUserId], references: [id])
-  history             PermitHistory[]
-  createdAt           DateTime       @default(now())
-  updatedAt           DateTime       @updatedAt
+  id                 String          @id @default(uuid())
+  projectId          String
+  project            Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title              String
+  authority          String?
+  referenceNumber    String?
+  status             PermitStatus    @default(VORBEREITUNG)
+  submittedAt        DateTime?
+  expectedDecisionAt DateTime?
+  decidedAt          DateTime?
+  notes              String?
+  documents          Json?
+  createdByUserId    String
+  creator            User            @relation("PermitCreator", fields: [createdByUserId], references: [id])
+  history            PermitHistory[]
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
 
   @@index([projectId])
   @@index([status])
 }
 
 model PermitHistory {
-  id          String       @id @default(uuid())
+  id          String        @id @default(uuid())
   permitId    String
-  permit      Permit       @relation(fields: [permitId], references: [id], onDelete: Cascade)
+  permit      Permit        @relation(fields: [permitId], references: [id], onDelete: Cascade)
   fromStatus  PermitStatus?
   toStatus    PermitStatus
   notes       String?
   actorUserId String
-  actor       User         @relation("PermitHistoryActor", fields: [actorUserId], references: [id])
-  createdAt   DateTime     @default(now())
+  actor       User          @relation("PermitHistoryActor", fields: [actorUserId], references: [id])
+  createdAt   DateTime      @default(now())
 
   @@index([permitId])
 }
@@ -793,28 +846,28 @@ model Vendor {
 }
 
 model ProjectVendor {
-  id          String   @id @default(uuid())
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  vendorId    String
-  vendor      Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  phase       String?
-  notes       String?
-  assignedAt  DateTime @default(now())
+  id         String   @id @default(uuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  vendorId   String
+  vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  phase      String?
+  notes      String?
+  assignedAt DateTime @default(now())
 
   @@unique([projectId, vendorId])
   @@index([vendorId])
 }
 
 model ProjectSupplier {
-  id          String   @id @default(uuid())
-  projectId   String
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  accountId   String
-  account     Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
-  phase       String?
-  notes       String?
-  assignedAt  DateTime @default(now())
+  id         String   @id @default(uuid())
+  projectId  String
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  accountId  String
+  account    Account  @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  phase      String?
+  notes      String?
+  assignedAt DateTime @default(now())
 
   @@unique([projectId, accountId])
   @@index([accountId])
@@ -872,17 +925,17 @@ enum BudgetCategory {
 // ─── Document Vault ───────────────────────────────────────────────────────────
 
 model ProjectDocument {
-  id              String           @id @default(uuid())
-  projectId       String
-  project         Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  name            String
-  url             String
-  category        DocumentCategory @default(SONSTIGES)
-  version         String?
-  notes           String?
+  id               String           @id @default(uuid())
+  projectId        String
+  project          Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name             String
+  url              String
+  category         DocumentCategory @default(SONSTIGES)
+  version          String?
+  notes            String?
   uploadedByUserId String
-  uploadedBy      User             @relation("DocumentUploader", fields: [uploadedByUserId], references: [id])
-  createdAt       DateTime         @default(now())
+  uploadedBy       User             @relation("DocumentUploader", fields: [uploadedByUserId], references: [id])
+  createdAt        DateTime         @default(now())
 
   @@index([projectId])
   @@index([category])

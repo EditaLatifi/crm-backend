@@ -1,21 +1,24 @@
-import { PrismaClient, Role } from '@prisma/client';
+/**
+ * DEPRECATED: Anonymous user is no longer created.
+ * This script now deactivates the anonymous user if it exists,
+ * reassigning its display name to 'System' so existing references
+ * remain valid without showing 'Anonymous' in the UI.
+ */
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
 async function main() {
   const email = 'anonymous@crm.local';
-  const name = 'Anonymous';
-  const passwordHash = '';
-  const role = 'USER' as Role;
-
   const existing = await prisma.user.findUnique({ where: { email } });
-  if (!existing) {
-    await prisma.user.create({
-      data: { email, name, passwordHash, role },
+  if (existing) {
+    await prisma.user.update({
+      where: { email },
+      data: { name: 'System' },
     });
-    console.log('Anonymous user created.');
+    console.log('Anonymous user renamed to "System".');
   } else {
-    console.log('Anonymous user already exists.');
+    console.log('No anonymous user found — nothing to do.');
   }
 }
 

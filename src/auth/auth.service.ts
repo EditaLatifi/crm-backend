@@ -11,6 +11,7 @@ export class AuthService {
   ) {}
 
   async validateUser(email: string, pass: string) {
+    if (email === 'anonymous@crm.local') return null; // Block anonymous login
     const user = await this.usersService.findByEmail(email);
     if (user && await bcrypt.compare(pass, user.passwordHash)) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars

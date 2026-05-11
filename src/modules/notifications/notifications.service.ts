@@ -69,4 +69,38 @@ export class NotificationsService {
       where: { createdAt: { lt: cutoff } },
     });
   }
+
+  /** Get or create default preferences for a user */
+  async getPreferences(userId: string) {
+    let prefs = await this.prisma.notificationPreference.findUnique({ where: { userId } });
+    if (!prefs) {
+      prefs = await this.prisma.notificationPreference.create({ data: { userId } });
+    }
+    return prefs;
+  }
+
+  /** Update preferences for a user */
+  async updatePreferences(userId: string, data: any) {
+    const allowed = [
+      'emailOnTaskAssigned', 'emailOnTaskComment', 'emailOnDealCreated',
+      'emailOnDealStageChange', 'emailOnDueDate', 'emailOnFollowUp',
+      'emailOnPaymentDue', 'emailOnVacation',
+    ];
+    const update: Record<string, boolean> = {};
+    for (const key of allowed) {
+      if (data[key] !== undefined) update[key] = Boolean(data[key]);
+    }
+    return this.prisma.notificationPreference.upsert({
+      where: { userId },
+      create: { userId, ...update },
+      update,
+    });
+  }
+
+  /** Check if a user wants a specific email type */
+  async wantsEmail(userId: string, prefKey: string): Promise<boolean> {
+    const prefs = await this.prisma.notificationPreference.findUnique({ where: { userId } });
+    if (!prefs) return true; // Default: all enabled
+    return (prefs as any)[prefKey] ?? true;
+  }
 }

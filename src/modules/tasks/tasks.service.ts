@@ -411,10 +411,13 @@ async addComment(taskId: string, text: string, user: any) {
 
   async findAll(user?: any, assignedToMe = false): Promise<any[]> {
     const where: any = {};
-    if (assignedToMe && user?.userId) {
+    // Mitarbeiter/Extern/USER: only see own/assigned tasks; Admin/Projektleiter see all
+    const isRestricted = user?.role && user.role !== 'ADMIN' && user.role !== 'PROJEKTLEITER';
+    if ((assignedToMe || isRestricted) && user?.userId) {
       where.OR = [
         { assignedToUserId: user.userId },
         { assigneeIds: { array_contains: [user.userId] } },
+        { createdByUserId: user.userId },
       ];
     }
     return this.prisma.task.findMany({

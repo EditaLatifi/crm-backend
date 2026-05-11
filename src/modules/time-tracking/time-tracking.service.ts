@@ -8,7 +8,7 @@ import { PrismaService } from '../../common/prisma.service';
 export class TimeTrackingService {
   constructor(private prisma: PrismaService) {}
 
-  async startTimer(user: any, accountId: string, taskId?: string, description?: string, projectId?: string): Promise<RunningTimer> {
+  async startTimer(user: any, accountId: string, taskId?: string, description?: string, projectId?: string, projectPhaseId?: string): Promise<RunningTimer> {
     const existing = await this.prisma.runningTimer.findUnique({ where: { userId: user.userId } });
     if (existing) throw new BadRequestException('Ein Timer läuft bereits. Stoppe ihn zuerst.');
     return this.prisma.runningTimer.create({
@@ -18,6 +18,7 @@ export class TimeTrackingService {
         taskId: taskId || null,
         description: description || null,
         projectId: projectId || null,
+        projectPhaseId: projectPhaseId || null,
         startedAt: new Date(),
       },
       include: { account: true, task: true },
@@ -62,6 +63,7 @@ export class TimeTrackingService {
           accountId: runningTimer.accountId,
           taskId: runningTimer.taskId,
           projectId: (runningTimer as any).projectId || null,
+          projectPhaseId: (runningTimer as any).projectPhaseId || null,
           startedAt,
           endedAt,
           durationMinutes,
@@ -127,6 +129,11 @@ export class TimeTrackingService {
 
     const minutes = body.durationMinutes ?? Math.round((body.hours || 0) * 60);
     if (!minutes || minutes < 1) throw new BadRequestException('Stunden sind erforderlich.');
+    if (minutes > 840) throw new BadRequestException('Maximale Erfassung pro Eintrag: 14 Stunden.');
+    if (minutes > 600) {
+      // Warning threshold: 10h = 600min — logged but allowed
+      console.warn(`[TimeTracking] Hohe Stundenerfassung: ${minutes} Minuten (${(minutes / 60).toFixed(1)}h) für User ${userId}`);
+    }
 
     const startedAt = body.date ? new Date(body.date) : new Date();
     startedAt.setHours(9, 0, 0, 0);
