@@ -48,17 +48,46 @@ export class TimeTrackingService {
     };
   }
 
-  async stopTimer(user: any): Promise<{ timeEntry: TimeEntry }> {
-    // 1. Read running timer
+  async stopTimer(user: any): Promise<{ timeEntry: TimeEntry; kontingentWarning?: string }> {
     const runningTimer = await this.prisma.runningTimer.findUnique({ where: { userId: user.userId } });
     if (!runningTimer) throw forbidden('No running timer found');
 
-    // 2. Calculate duration
     const endedAt = new Date();
     const startedAt = runningTimer.startedAt;
     const durationMinutes = Math.max(1, Math.floor((endedAt.getTime() - startedAt.getTime()) / 60000));
 
-    // 3. Atomic transaction: delete running timer, create time entry, log activity
+    // Kontingent-check: same logic as manualEntry
+    let kontingentWarning: string | null = null;
+    const phaseId = (runningTimer as any).projectPhaseId;
+    if (phaseId) {
+      const phase = await this.prisma.projectPhase.findUnique({
+        where: { id: phaseId },
+        include: { timeEntries: { select: { durationMinutes: true } } },
+      });
+      if (phase?.budgetHours && phase.budgetHours > 0) {
+        const usedMinutes = phase.timeEntries.reduce((s, e) => s + e.durationMinutes, 0);
+        const usedHours = usedMinutes / 60;
+        const afterBooking = usedHours + (durationMinutes / 60);
+        const usagePercent = (afterBooking / phase.budgetHours) * 100;
+
+        if (afterBooking > phase.budgetHours) {
+          const overPercent = ((afterBooking - phase.budgetHours) / phase.budgetHours) * 100;
+          if (overPercent > 10 && user.role !== 'ADMIN' && user.role !== 'PROJEKTLEITER') {
+            throw new BadRequestException(
+              `Kontingent überschritten um ${overPercent.toFixed(1)}%. Budget: ${phase.budgetHours}h, Verbraucht: ${usedHours.toFixed(1)}h, Diese Buchung: ${(durationMinutes / 60).toFixed(1)}h.`
+            );
+          }
+          kontingentWarning = `Kontingent überschritten (${afterBooking.toFixed(1)}h / ${phase.budgetHours}h)`;
+          const proj = await this.prisma.project.findFirst({ where: { phases: { some: { id: phaseId } } }, select: { id: true, name: true, ownerUserId: true } });
+          if (proj?.ownerUserId && proj.ownerUserId !== user.userId) {
+            this.notifications.createForUser(proj.ownerUserId, 'BUDGET_WARNING', 'Kontingent überschritten', `Timer-Buchung in "${proj.name}": ${afterBooking.toFixed(1)}h / ${phase.budgetHours}h`, 'Project', proj.id, `/projects/${proj.id}`).catch(() => {});
+          }
+        } else if (usagePercent >= 80) {
+          kontingentWarning = `${usagePercent.toFixed(0)}% des Kontingents verbraucht`;
+        }
+      }
+    }
+
     const [_, timeEntry, __] = await this.prisma.$transaction([
       this.prisma.runningTimer.delete({ where: { userId: user.userId } }),
       this.prisma.timeEntry.create({
@@ -67,7 +96,7 @@ export class TimeTrackingService {
           accountId: runningTimer.accountId,
           taskId: runningTimer.taskId,
           projectId: (runningTimer as any).projectId || null,
-          projectPhaseId: (runningTimer as any).projectPhaseId || null,
+          projectPhaseId: phaseId || null,
           startedAt,
           endedAt,
           durationMinutes,
@@ -80,17 +109,11 @@ export class TimeTrackingService {
           entityType: 'TimeEntry',
           entityId: runningTimer.id,
           action: 'timer_stop',
-          payloadJson: {
-            startedAt,
-            endedAt,
-            durationMinutes,
-            accountId: runningTimer.accountId,
-            taskId: runningTimer.taskId,
-          },
+          payloadJson: { startedAt, endedAt, durationMinutes, accountId: runningTimer.accountId, taskId: runningTimer.taskId },
         },
       }),
     ]);
-    return { timeEntry };
+    return kontingentWarning ? { timeEntry, kontingentWarning } : { timeEntry };
   }
 
   async manualEntry(
@@ -224,7 +247,7 @@ export class TimeTrackingService {
       account: true,
       task: true,
       project: true,
-      projectPhase: { select: { id: true, name: true, order: true } },
+      projectPhase: { select: { id: true, name: true, order: true, budgetHours: true, timeEntries: { select: { durationMinutes: true } } } },
     };
     const where: any = {};
 
