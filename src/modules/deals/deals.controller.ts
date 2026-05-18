@@ -1,5 +1,5 @@
 
-import { Controller, Get, Post, Patch, Delete, Param, Request, Body, UseGuards, UseInterceptors, UploadedFile, Query } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Param, Request, Body, UseGuards, UseInterceptors, UploadedFile, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DealsService } from './deals.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
@@ -100,6 +100,7 @@ export class DealsController {
     return this.dealsService.createPhase(id, body, req.user);
   }
 
+  @Put(':id/phases/budget-hours')
   @Patch(':id/phases/budget-hours')
   async bulkUpdatePhaseBudgetHours(
     @Param('id') id: string,
