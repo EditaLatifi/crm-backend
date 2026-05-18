@@ -22,9 +22,9 @@ export class TimeTrackingController {
 
   @UseGuards(JwtAuthGuard)
   @Post('/timer/stop')
-  async stopTimer(@Request() req: any) {
+  async stopTimer(@Request() req: any, @Body() body: { overBudgetReason?: string } = {}) {
     const user = req.user;
-    return this.timeTrackingService.stopTimer(user);
+    return this.timeTrackingService.stopTimer(user, body?.overBudgetReason);
   }
 
   @UseGuards(JwtAuthGuard)

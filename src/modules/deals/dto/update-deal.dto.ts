@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsNumber, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsNumber, IsEnum, IsDateString, IsObject, IsArray } from 'class-validator';
 import { Currency } from '@prisma/client';
 
 export class UpdateDealDto {
@@ -17,4 +17,24 @@ export class UpdateDealDto {
   @IsEnum(Currency)
   @IsOptional()
   currency?: Currency;
+
+  @IsDateString()
+  @IsOptional()
+  expectedCloseDate?: string;
+
+  @IsDateString()
+  @IsOptional()
+  followUpDate?: string | null;
+
+  @IsArray()
+  @IsOptional()
+  phases?: number[];
+
+  @IsObject()
+  @IsOptional()
+  phaseBudgets?: Record<string, number>;
+
+  @IsObject()
+  @IsOptional()
+  customFields?: Record<string, any>;
 }

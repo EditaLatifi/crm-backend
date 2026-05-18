@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { forbidden, notFound } from '../../common/error/error.response';
 import { Deal, Role } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
@@ -389,6 +389,73 @@ export class DealsService {
   async deletePhase(phaseId: string) {
     await this.prisma.dealPhase.delete({ where: { id: phaseId } });
     return { deleted: true };
+  }
+
+  async bulkUpdatePhaseBudgetHours(
+    dealId: string,
+    updates: Array<{ phaseId: string; hourBudget: number | null }>,
+  ) {
+    if (!Array.isArray(updates) || updates.length === 0) {
+      throw new BadRequestException('Mindestens eine Phase erforderlich.');
+    }
+    const ids = updates.map(u => u.phaseId);
+    const updateIds = new Set(ids);
+    for (const u of updates) {
+      if (u.hourBudget != null && (typeof u.hourBudget !== 'number' || u.hourBudget < 0 || !Number.isFinite(u.hourBudget))) {
+        throw new BadRequestException('Ungültige Budgetstunden.');
+      }
+    }
+
+    const deal = await this.prisma.deal.findUnique({
+      where: { id: dealId },
+      select: { id: true, phaseBudgets: true },
+    });
+    if (!deal) throw new BadRequestException('Deal nicht gefunden.');
+
+    const allPhases = await this.prisma.dealPhase.findMany({
+      where: { dealId },
+      select: { id: true, hourBudget: true },
+    });
+    const allPhaseIds = new Set(allPhases.map(p => p.id));
+    for (const id of ids) {
+      if (!allPhaseIds.has(id)) {
+        throw new BadRequestException('Phase gehört nicht zu diesem Deal.');
+      }
+    }
+
+    // Sum cap: total of resulting DealPhase.hourBudget must not exceed sum of deal.phaseBudgets (SIA totals).
+    // If deal has no phaseBudgets set, no cap is enforced.
+    const phaseBudgets = (deal.phaseBudgets && typeof deal.phaseBudgets === 'object' && !Array.isArray(deal.phaseBudgets))
+      ? (deal.phaseBudgets as Record<string, any>)
+      : {};
+    const siaTotal = Object.values(phaseBudgets).reduce((s: number, v: any) => {
+      const n = Number(v);
+      return s + (Number.isFinite(n) ? n : 0);
+    }, 0);
+
+    if (siaTotal > 0) {
+      const updatesById = new Map(updates.map(u => [u.phaseId, u.hourBudget]));
+      const prospective = allPhases.reduce((s, p) => {
+        const next = updateIds.has(p.id) ? updatesById.get(p.id) ?? null : p.hourBudget;
+        return s + (next ?? 0);
+      }, 0);
+      // Round to 2 decimals to avoid floating-point noise pushing equal sums over.
+      if (Math.round(prospective * 100) > Math.round(siaTotal * 100)) {
+        throw new BadRequestException(
+          `Stundenbudget übersteigt SIA-Kontingent: ${prospective.toFixed(1)}h / ${siaTotal.toFixed(1)}h.`,
+        );
+      }
+    }
+
+    await this.prisma.$transaction(
+      updates.map(u =>
+        this.prisma.dealPhase.update({
+          where: { id: u.phaseId },
+          data: { hourBudget: u.hourBudget },
+        }),
+      ),
+    );
+    return { updated: updates.length, siaTotal };
   }
 
   async listSubPhaseTemplates(parentCode?: string) {

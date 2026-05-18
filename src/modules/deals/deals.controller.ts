@@ -100,6 +100,14 @@ export class DealsController {
     return this.dealsService.createPhase(id, body, req.user);
   }
 
+  @Patch(':id/phases/budget-hours')
+  async bulkUpdatePhaseBudgetHours(
+    @Param('id') id: string,
+    @Body() body: { updates: Array<{ phaseId: string; hourBudget: number | null }> },
+  ) {
+    return this.dealsService.bulkUpdatePhaseBudgetHours(id, body?.updates || []);
+  }
+
   @Patch('phases/:phaseId')
   async updatePhase(@Param('phaseId') phaseId: string, @Body() body: any) {
     return this.dealsService.updatePhase(phaseId, body);

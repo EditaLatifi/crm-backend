@@ -611,6 +611,7 @@ model TimeEntry {
   durationMinutes Int
   phase           String?
   description     String?
+  overBudgetReason String?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 

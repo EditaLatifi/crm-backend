@@ -48,7 +48,7 @@ export class TimeTrackingService {
     };
   }
 
-  async stopTimer(user: any): Promise<{ timeEntry: TimeEntry; kontingentWarning?: string }> {
+  async stopTimer(user: any, overBudgetReasonInput?: string): Promise<{ timeEntry: TimeEntry; kontingentWarning?: string; overBudget?: boolean }> {
     const runningTimer = await this.prisma.runningTimer.findUnique({ where: { userId: user.userId } });
     if (!runningTimer) throw forbidden('No running timer found');
 
@@ -58,6 +58,7 @@ export class TimeTrackingService {
 
     // Kontingent-check: same logic as manualEntry
     let kontingentWarning: string | null = null;
+    let overBudget = false;
     const phaseId = (runningTimer as any).projectPhaseId;
     if (phaseId) {
       const phase = await this.prisma.projectPhase.findUnique({
@@ -71,11 +72,9 @@ export class TimeTrackingService {
         const usagePercent = (afterBooking / phase.budgetHours) * 100;
 
         if (afterBooking > phase.budgetHours) {
-          const overPercent = ((afterBooking - phase.budgetHours) / phase.budgetHours) * 100;
-          if (overPercent > 10 && user.role !== 'ADMIN' && user.role !== 'PROJEKTLEITER') {
-            throw new BadRequestException(
-              `Kontingent überschritten um ${overPercent.toFixed(1)}%. Budget: ${phase.budgetHours}h, Verbraucht: ${usedHours.toFixed(1)}h, Diese Buchung: ${(durationMinutes / 60).toFixed(1)}h.`
-            );
+          overBudget = true;
+          if (!overBudgetReasonInput || !overBudgetReasonInput.trim()) {
+            throw new BadRequestException('Begründung für Budgetüberschreitung erforderlich.');
           }
           kontingentWarning = `Kontingent überschritten (${afterBooking.toFixed(1)}h / ${phase.budgetHours}h)`;
           const proj = await this.prisma.project.findFirst({ where: { phases: { some: { id: phaseId } } }, select: { id: true, name: true, ownerUserId: true } });
@@ -101,6 +100,7 @@ export class TimeTrackingService {
           endedAt,
           durationMinutes,
           description: runningTimer.description || undefined,
+          overBudgetReason: overBudget ? overBudgetReasonInput!.trim() : null,
         },
       }),
       this.prisma.activity.create({
@@ -109,11 +109,15 @@ export class TimeTrackingService {
           entityType: 'TimeEntry',
           entityId: runningTimer.id,
           action: 'timer_stop',
-          payloadJson: { startedAt, endedAt, durationMinutes, accountId: runningTimer.accountId, taskId: runningTimer.taskId },
+          payloadJson: { startedAt, endedAt, durationMinutes, accountId: runningTimer.accountId, taskId: runningTimer.taskId, overBudget },
         },
       }),
     ]);
-    return kontingentWarning ? { timeEntry, kontingentWarning } : { timeEntry };
+    return {
+      timeEntry,
+      ...(kontingentWarning ? { kontingentWarning } : {}),
+      ...(overBudget ? { overBudget: true } : {}),
+    };
   }
 
   async manualEntry(
@@ -128,6 +132,7 @@ export class TimeTrackingService {
       date?: string;
       description?: string;
       employeeUserId?: string;
+      overBudgetReason?: string;
     },
   ): Promise<TimeEntry> {
     const userId = body.employeeUserId && user.role === Role.ADMIN ? body.employeeUserId : user.userId;
@@ -164,6 +169,7 @@ export class TimeTrackingService {
 
     // ── Kontingent-Check: validate against phase budget before saving ──
     let kontingentWarning: string | null = null;
+    let overBudget = false;
     if (body.projectPhaseId) {
       const phase = await this.prisma.projectPhase.findUnique({
         where: { id: body.projectPhaseId },
@@ -177,13 +183,9 @@ export class TimeTrackingService {
         const usagePercent = (afterBooking / budgetHours) * 100;
 
         if (afterBooking > budgetHours) {
-          const overPercent = ((afterBooking - budgetHours) / budgetHours) * 100;
-          if (overPercent > 10 && user.role !== Role.ADMIN && user.role !== 'PROJEKTLEITER') {
-            throw new BadRequestException(
-              `Kontingent überschritten um ${overPercent.toFixed(1)}%. ` +
-              `Budget: ${budgetHours}h, Verbraucht: ${usedHours.toFixed(1)}h, Diese Buchung: ${(minutes / 60).toFixed(1)}h. ` +
-              `Genehmigung durch Admin/Projektleiter erforderlich.`
-            );
+          overBudget = true;
+          if (!body.overBudgetReason || !body.overBudgetReason.trim()) {
+            throw new BadRequestException('Begründung für Budgetüberschreitung erforderlich.');
           }
           kontingentWarning = `Kontingent wird überschritten. Verbleibend vor Buchung: ${(budgetHours - usedHours).toFixed(1)}h`;
           // Notify project owner about kontingent exceeded
@@ -216,6 +218,7 @@ export class TimeTrackingService {
         endedAt,
         durationMinutes: minutes,
         description: body.description || null,
+        overBudgetReason: overBudget ? body.overBudgetReason!.trim() : null,
       },
       include: {
         user: { select: { id: true, name: true } },
@@ -223,8 +226,8 @@ export class TimeTrackingService {
         projectPhase: { select: { id: true, name: true } },
       },
     });
-    if (kontingentWarning) {
-      return { ...entry, kontingentWarning } as any;
+    if (kontingentWarning || overBudget) {
+      return { ...entry, ...(kontingentWarning ? { kontingentWarning } : {}), ...(overBudget ? { overBudget: true } : {}) } as any;
     }
     return entry;
   }

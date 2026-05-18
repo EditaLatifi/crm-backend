@@ -25,4 +25,8 @@ export class CreateTimeEntryDto {
   @IsOptional()
   @IsString()
   taskId?: string;
+
+  @IsOptional()
+  @IsString()
+  overBudgetReason?: string;
 }
