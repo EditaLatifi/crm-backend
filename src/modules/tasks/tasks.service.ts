@@ -210,6 +210,13 @@ export class TasksService {
         'Task', task.id, `/tasks/${task.id}`,
       ).catch(() => {});
     }
+    // Also notify creator (confirmation)
+    this.notifications.createForUser(
+      createdByUserId, 'TASK_ASSIGNED',
+      'Aufgabe erstellt',
+      `Du hast die Aufgabe "${title}" erstellt`,
+      'Task', task.id, `/tasks/${task.id}`,
+    ).catch(() => {});
     await this.prisma.taskHistory.create({
       data: { taskId: task.id, action: 'CREATED', payload: { title }, userId: createdByUserId },
     });

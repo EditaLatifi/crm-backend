@@ -182,7 +182,7 @@ export class DealsService {
     });
     await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: deal.id, action: 'CREATE', payloadJson: { name: deal.name } });
 
-    // Notify deal owner
+    // Notify deal owner if different from creator
     if (ownerUserId && ownerUserId !== user.userId) {
       this.notifications.createForUser(
         ownerUserId, 'DEAL_CREATED',
@@ -191,6 +191,13 @@ export class DealsService {
         'Deal', deal.id, `/deals/${deal.id}`,
       ).catch(() => {});
     }
+    // Also notify creator (confirmation)
+    this.notifications.createForUser(
+      user.userId, 'DEAL_CREATED',
+      'Deal erstellt',
+      `Du hast den Deal "${deal.name}" erstellt`,
+      'Deal', deal.id, `/deals/${deal.id}`,
+    ).catch(() => {});
 
     const owner = ownerUserId ? await this.prisma.user.findUnique({ where: { id: ownerUserId } }) : null;
     const creator = await this.prisma.user.findUnique({ where: { id: createdByUserId } });
@@ -299,7 +306,13 @@ export class DealsService {
   async findById(id: string, _user?: any): Promise<Deal> {
     const deal = await this.prisma.deal.findUnique({
       where: { id },
-      include: { stage: true, account: true, owner: { select: { id: true, name: true } }, creator: { select: { id: true, name: true } } },
+      include: {
+        stage: true,
+        account: true,
+        owner: { select: { id: true, name: true } },
+        creator: { select: { id: true, name: true } },
+        dealPhases: { select: { id: true, code: true, name: true, hourBudget: true, budgetChf: true, parentId: true } },
+      },
     });
     if (!deal) throw new NotFoundException('Deal not found');
     return deal;

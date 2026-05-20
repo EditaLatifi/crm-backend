@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -208,7 +208,12 @@ export class ProjectsService {
 
   private redactProject(project: any, user: any): any {
     if (user?.role === Role.ADMIN) return project;
-    const { budget, budgetHours, notes, account, ...safe } = project;
+    if (user?.role === Role.EXTERN) {
+      const { budget, budgetHours, notes, account, phases, ...safe } = project;
+      return safe;
+    }
+    // PROJEKTLEITER / MITARBEITER: hide Kunden-Offerte (budget) but keep Kontingent (budgetHours)
+    const { budget, notes, account, ...safe } = project;
     if (account) {
       const { phone, email, ...accountSafe } = account;
       return { ...safe, account: accountSafe };
@@ -309,7 +314,7 @@ export class ProjectsService {
       payloadJson: { name: project.name },
     });
 
-    // Notify project members
+    // Notify project members (other than creator)
     const memberUserIds = project.members.map((m: any) => m.userId).filter((uid: string) => uid !== user.userId);
     for (const uid of memberUserIds) {
       this.notifications.createForUser(
@@ -319,6 +324,13 @@ export class ProjectsService {
         'Project', project.id, `/projects/${project.id}`,
       ).catch(() => {});
     }
+    // Also notify creator (confirmation)
+    this.notifications.createForUser(
+      user.userId, 'PROJECT_CREATED',
+      'Projekt erstellt',
+      `Du hast das Projekt "${project.name}" erstellt`,
+      'Project', project.id, `/projects/${project.id}`,
+    ).catch(() => {});
 
     const recipients = Array.from(
       new Set(
@@ -809,5 +821,98 @@ export class ProjectsService {
     ) {
       throw new ForbiddenException('Zugriff verweigert');
     }
+  }
+
+  async createFromDeal(dealId: string, user: any) {
+    if (!user?.userId) throw new ForbiddenException('Authentifizierung erforderlich');
+    if (user.role !== Role.ADMIN && user.role !== Role.PROJEKTLEITER) {
+      throw new ForbiddenException('Nur Admin oder Projektleiter können Projekte erstellen');
+    }
+
+    const existing = await this.prisma.project.findUnique({ where: { dealId } });
+    if (existing) {
+      throw new ConflictException('Projekt bereits aus diesem Deal erstellt');
+    }
+
+    const deal = await this.prisma.deal.findUnique({
+      where: { id: dealId },
+      include: {
+        account: true,
+        dealPhases: { orderBy: [{ order: 'asc' }] },
+      },
+    });
+    if (!deal) throw new NotFoundException('Deal nicht gefunden');
+
+    const address =
+      (deal.account?.address as string | null) ||
+      [
+        (deal.account as any)?.addressStreet,
+        (deal.account as any)?.addressNumber,
+        (deal.account as any)?.addressZip,
+        (deal.account as any)?.addressCity,
+      ]
+        .filter(Boolean)
+        .join(' ') ||
+      'Nicht angegeben';
+
+    const project = await this.prisma.project.create({
+      data: {
+        name: deal.name,
+        address,
+        accountId: deal.accountId ?? null,
+        dealId: deal.id,
+        ownerUserId: user.userId,
+        createdByUserId: user.userId,
+        budget: deal.amount ?? null,
+        currency: deal.currency,
+        status: ProjectStatus.ACTIVE,
+      },
+    });
+
+    if (deal.dealPhases.length > 0) {
+      for (const dp of deal.dealPhases) {
+        await this.prisma.projectPhase.create({
+          data: {
+            projectId: project.id,
+            name: dp.name,
+            description: dp.description ?? null,
+            order: dp.order,
+            code: dp.code,
+            budgetHours: dp.hourBudget ?? null,
+            budgetChf: dp.budgetChf ?? null,
+            offeredHours: dp.offeredHours ?? null,
+            originDealPhaseId: dp.id,
+            status: PhaseStatus.PENDING,
+          },
+        });
+      }
+    } else {
+      await this.prisma.projectPhase.createMany({
+        data: DEFAULT_PHASES.map((p, idx) => ({
+          projectId: project.id,
+          name: p.name,
+          description: p.description,
+          order: p.order ?? idx + 1,
+          status: PhaseStatus.PENDING,
+        })),
+      });
+    }
+
+    await this.prisma.task.updateMany({
+      where: { dealId: deal.id, projectId: null },
+      data: { projectId: project.id },
+    });
+
+    await this.activityLogger
+      .logActivity({
+        actorUserId: user.userId,
+        entityType: 'Project',
+        entityId: project.id,
+        action: 'CREATED_FROM_DEAL',
+        payloadJson: { dealId: deal.id, dealName: deal.name },
+      })
+      .catch(() => {});
+
+    return project;
   }
 }

@@ -1,9 +1,27 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
+import { NotificationsService } from '../notifications/notifications.service';
+import { EmailService, APP_BASE_URL } from '../email/email.service';
 
 @Injectable()
 export class FollowUpsService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(FollowUpsService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    private notifications: NotificationsService,
+    private email: EmailService,
+  ) {}
+
+  private buildHref(entityType: string, entityId: string): string {
+    const map: Record<string, string> = {
+      Contact: `/contacts/${entityId}`,
+      Account: `/accounts/${entityId}`,
+      Deal: `/deals/${entityId}`,
+      Project: `/projects/${entityId}`,
+    };
+    return map[entityType] ?? '/calendar';
+  }
 
   async findAll(filters: {
     entityType?: string;
@@ -57,7 +75,7 @@ export class FollowUpsService {
     assignedToUserId?: string;
     createdByUserId: string;
   }) {
-    return this.prisma.followUp.create({
+    const followUp = await this.prisma.followUp.create({
       data: {
         entityType: data.entityType,
         entityId: data.entityId,
@@ -68,10 +86,47 @@ export class FollowUpsService {
         createdByUserId: data.createdByUserId,
       },
       include: {
-        assignedTo: { select: { id: true, name: true } },
-        createdBy: { select: { id: true, name: true } },
+        assignedTo: { select: { id: true, name: true, email: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
       },
     });
+
+    const recipientUserId = followUp.assignedToUserId || followUp.createdByUserId;
+    const recipientEmail = followUp.assignedTo?.email || followUp.createdBy?.email;
+    const dueStr = followUp.dueDate.toLocaleDateString('de-CH');
+    const href = this.buildHref(followUp.entityType, followUp.entityId);
+    const notificationTitle = 'Neuer Follow-up geplant';
+    const notificationBody = `${followUp.title} — fällig am ${dueStr}`;
+
+    this.notifications
+      .createForUser(
+        recipientUserId,
+        'FOLLOW_UP_CREATED',
+        notificationTitle,
+        notificationBody,
+        followUp.entityType,
+        followUp.entityId,
+        href,
+      )
+      .catch((e) => this.logger.error(`Follow-up notification failed: ${e.message}`));
+
+    if (recipientEmail) {
+      this.email
+        .send({
+          to: recipientEmail,
+          subject: `[Follow-up] ${followUp.title}`,
+          text:
+            `${notificationBody}\n\n` +
+            (followUp.description ? `${followUp.description}\n\n` : '') +
+            `Öffnen: ${APP_BASE_URL}${href}`,
+          entityType: followUp.entityType,
+          entityId: followUp.entityId,
+          loggedByUserId: followUp.createdByUserId,
+        })
+        .catch((e) => this.logger.error(`Follow-up email failed: ${e.message}`));
+    }
+
+    return followUp;
   }
 
   async update(id: string, data: {

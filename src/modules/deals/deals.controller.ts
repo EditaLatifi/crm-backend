@@ -2,6 +2,7 @@
 import { Controller, Get, Post, Put, Patch, Delete, Param, Request, Body, UseGuards, UseInterceptors, UploadedFile, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DealsService } from './deals.service';
+import { ProjectsService } from '../projects/projects.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 import { ChangeDealStageDto } from './dto/change-stage.dto';
 import { CreateDealDto } from './dto/create-deal.dto';
@@ -14,7 +15,15 @@ import { UpdatePhasePaymentDto } from './dto/update-phase-payment.dto';
 @Controller('deals')
 @UseGuards(JwtAuthGuard)
 export class DealsController {
-  constructor(private readonly dealsService: DealsService) {}
+  constructor(
+    private readonly dealsService: DealsService,
+    private readonly projectsService: ProjectsService,
+  ) {}
+
+  @Post(':id/create-project')
+  async createProjectFromDeal(@Param('id') id: string, @Request() req: any) {
+    return this.projectsService.createFromDeal(id, req.user);
+  }
 
   @Get('/analytics')
   async getAnalytics() {
@@ -101,8 +110,15 @@ export class DealsController {
   }
 
   @Put(':id/phases/budget-hours')
+  async bulkUpdatePhaseBudgetHoursPut(
+    @Param('id') id: string,
+    @Body() body: { updates: Array<{ phaseId: string; hourBudget: number | null }> },
+  ) {
+    return this.dealsService.bulkUpdatePhaseBudgetHours(id, body?.updates || []);
+  }
+
   @Patch(':id/phases/budget-hours')
-  async bulkUpdatePhaseBudgetHours(
+  async bulkUpdatePhaseBudgetHoursPatch(
     @Param('id') id: string,
     @Body() body: { updates: Array<{ phaseId: string; hourBudget: number | null }> },
   ) {

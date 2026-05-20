@@ -27,6 +27,10 @@ export class UpdateProjectDto {
   budget?: number;
 
   @IsOptional()
+  @IsNumber()
+  budgetHours?: number;
+
+  @IsOptional()
   @IsEnum(Currency)
   currency?: Currency;
 

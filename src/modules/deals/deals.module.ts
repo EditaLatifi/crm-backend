@@ -7,9 +7,10 @@ import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { NotificationsModule } from '../notifications/notifications.module';
 import { DocumentsModule } from '../documents/documents.module';
 import { EmailModule } from '../email/email.module';
+import { ProjectsModule } from '../projects/projects.module';
 
 @Module({
-  imports: [CommonModule, ActivityModule, NotificationsModule, DocumentsModule, EmailModule],
+  imports: [CommonModule, ActivityModule, NotificationsModule, DocumentsModule, EmailModule, ProjectsModule],
   providers: [DealsService, ActivityLoggerService],
   controllers: [DealsController],
   exports: [DealsService],

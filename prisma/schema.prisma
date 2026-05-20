@@ -84,6 +84,8 @@ enum NotificationType {
   APPOINTMENT_CREATED
   PERMIT_STATUS_CHANGED
   VACATION_REVIEWED
+  FOLLOW_UP_CREATED
+  FOLLOW_UP_DUE
 }
 
 model NotificationPreference {
