@@ -49,7 +49,7 @@ export class ShareService {
             },
             account: { select: { id: true, name: true } },
             owner: { select: { id: true, name: true } },
-            members: { include: { user: { select: { id: true, name: true } } } },
+            // Internal staff roster is intentionally NOT exposed on the public share link.
           },
         },
       },

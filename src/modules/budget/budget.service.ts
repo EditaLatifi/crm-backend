@@ -2,6 +2,13 @@ import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/commo
 import { PrismaService } from '../../common/prisma.service';
 import { Role } from '@prisma/client';
 
+// Parse to a finite number, or undefined for null/empty/non-numeric input (never NaN to the DB).
+const toNum = (v: any): number | undefined => {
+  if (v === null || v === undefined || v === '') return undefined;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
 @Injectable()
 export class BudgetService {
   constructor(private prisma: PrismaService) {}
@@ -22,8 +29,8 @@ export class BudgetService {
         projectId,
         category: dto.category,
         description: dto.description,
-        estimatedCost: parseFloat(dto.estimatedCost) || 0,
-        actualCost: dto.actualCost ? parseFloat(dto.actualCost) : undefined,
+        estimatedCost: toNum(dto.estimatedCost) ?? 0,
+        actualCost: toNum(dto.actualCost),
         phase: dto.phase,
         notes: dto.notes,
         createdByUserId: user.userId,
@@ -41,8 +48,8 @@ export class BudgetService {
       data: {
         category: dto.category,
         description: dto.description,
-        estimatedCost: dto.estimatedCost !== undefined ? parseFloat(dto.estimatedCost) : undefined,
-        actualCost: dto.actualCost !== undefined ? (dto.actualCost === null ? null : parseFloat(dto.actualCost)) : undefined,
+        estimatedCost: dto.estimatedCost !== undefined ? (toNum(dto.estimatedCost) ?? 0) : undefined,
+        actualCost: dto.actualCost !== undefined ? (toNum(dto.actualCost) ?? null) : undefined,
         phase: dto.phase,
         notes: dto.notes,
       },
@@ -155,12 +162,13 @@ export class BudgetService {
   }
 
   private async checkProjectAccess(projectId: string, user: any) {
-    if (user.role === Role.ADMIN) return;
     const project = await this.prisma.project.findUnique({
       where: { id: projectId },
       include: { members: { select: { userId: true } } },
     });
+    // The project must exist even for admins (otherwise summary returns fake zeroed data).
     if (!project) throw new NotFoundException('Projekt nicht gefunden');
+    if (user.role === Role.ADMIN) return;
     const isMember = project.members.some((m: any) => m.userId === user.userId);
     if (project.ownerUserId !== user.userId && project.createdByUserId !== user.userId && !isMember) {
       throw new ForbiddenException('Kein Zugriff');

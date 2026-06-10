@@ -37,8 +37,8 @@ export class AccountsController {
 
   // ─── Account Notes (threaded) ───
   @Get(':id/notes')
-  async getNotes(@Param('id') id: string) {
-    return this.accountsService.getNotes(id);
+  async getNotes(@Param('id') id: string, @Request() req: any) {
+    return this.accountsService.getNotes(id, req.user);
   }
 
   @Post(':id/notes')
@@ -47,8 +47,8 @@ export class AccountsController {
   }
 
   @Delete('notes/:noteId')
-  async deleteNote(@Param('noteId') noteId: string) {
-    return this.accountsService.deleteNote(noteId);
+  async deleteNote(@Param('noteId') noteId: string, @Request() req: any) {
+    return this.accountsService.deleteNote(noteId, req.user);
   }
 
   // ─── Bulk Operations ───

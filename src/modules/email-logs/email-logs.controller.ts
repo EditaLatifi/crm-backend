@@ -1,9 +1,13 @@
 import { Controller, Get, Post, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { EmailLogsService } from './email-logs.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/role.decorator';
 
 @Controller('email-logs')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.PROJEKTLEITER, Role.MITARBEITER, Role.USER)
 export class EmailLogsController {
   constructor(private service: EmailLogsService) {}
 

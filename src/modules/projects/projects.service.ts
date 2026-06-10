@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, ConflictException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -460,9 +460,13 @@ export class ProjectsService {
         name: body.name,
         description: body.description ?? null,
         order,
+        code: body.code ?? null,
+        // Sub-phase support: link to a parent main phase if provided.
+        parentPhaseId: body.parentPhaseId || null,
         startDate: body.startDate ? new Date(body.startDate) : null,
         endDate: body.endDate ? new Date(body.endDate) : null,
-        budgetHours: body.budgetHours ?? null,
+        // budgetHours is the internal Kontingent — ADMIN only (matches updatePhase).
+        budgetHours: user.role === Role.ADMIN ? (body.budgetHours ?? null) : null,
         linkedTaskId: task.id,
       },
       include: { linkedTask: true },
@@ -495,6 +499,8 @@ export class ProjectsService {
     const updated = await this.prisma.projectPhase.update({
       where: { id: phaseId },
       data: {
+        name: dto.name !== undefined ? dto.name : undefined,
+        code: dto.code !== undefined ? dto.code : undefined,
         status: dto.status,
         notes: dto.notes,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
@@ -554,6 +560,8 @@ export class ProjectsService {
       where: { id: phaseId, projectId },
       include: {
         timeEntries: { select: { durationMinutes: true } },
+        // Sub-phases are organization-only; their logged time rolls up into this main phase.
+        children: { select: { timeEntries: { select: { durationMinutes: true } } } },
         originDealPhase: {
           select: { budgetChf: true, offeredHours: true, hourBudget: true },
         },
@@ -564,7 +572,11 @@ export class ProjectsService {
     const budgetHours = phase.budgetHours || 0;
     const budgetChf = phase.budgetChf || phase.originDealPhase?.budgetChf || 0;
     const offeredHours = phase.offeredHours || phase.originDealPhase?.offeredHours || 0;
-    const usedMinutes = phase.timeEntries.reduce((s, e) => s + e.durationMinutes, 0);
+    const childMinutes = (phase.children || []).reduce(
+      (s, c) => s + c.timeEntries.reduce((s2, e) => s2 + e.durationMinutes, 0),
+      0,
+    );
+    const usedMinutes = phase.timeEntries.reduce((s, e) => s + e.durationMinutes, 0) + childMinutes;
     const usedHours = usedMinutes / 60;
     const remaining = Math.max(0, budgetHours - usedHours);
     const percent = budgetHours > 0 ? Math.round((usedHours / budgetHours) * 100) : 0;
@@ -731,11 +743,13 @@ export class ProjectsService {
     if (!project) throw new NotFoundException('Projekt nicht gefunden');
     this.checkAccess(project, user);
 
-    return this.prisma.projectMilestone.findMany({
+    const rows = await this.prisma.projectMilestone.findMany({
       where: { projectId },
       include: { milestone: true },
       orderBy: { order: 'asc' },
     });
+    // Resolve display name: ad-hoc rows use their own `name`, master-linked rows use the master name.
+    return rows.map((r) => ({ ...r, name: r.name ?? r.milestone?.name ?? '' }));
   }
 
   async setProjectMilestones(projectId: string, milestoneIds: string[], user: any) {
@@ -752,7 +766,8 @@ export class ProjectsService {
     });
 
     await this.prisma.$transaction([
-      this.prisma.projectMilestone.deleteMany({ where: { projectId } }),
+      // Replace only master-linked rows; ad-hoc per-project milestones (null milestoneId) are preserved.
+      this.prisma.projectMilestone.deleteMany({ where: { projectId, milestoneId: { not: null } } }),
       this.prisma.projectMilestone.createMany({
         data: masters.map((m, idx) => ({
           projectId,
@@ -765,6 +780,51 @@ export class ProjectsService {
     return this.listProjectMilestones(projectId, user);
   }
 
+  // Create a single ad-hoc per-project milestone (name + optional due date), not from the master list.
+  async addProjectMilestone(projectId: string, body: { name: string; dueDate?: string }, user: any) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { members: true } });
+    if (!project) throw new NotFoundException('Projekt nicht gefunden');
+    this.checkAccess(project, user);
+    if (!body?.name?.trim()) throw new BadRequestException('Name ist erforderlich');
+
+    const order = await this.prisma.projectMilestone.count({ where: { projectId } });
+    await this.prisma.projectMilestone.create({
+      data: {
+        projectId,
+        name: body.name.trim(),
+        dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        order,
+      },
+    });
+    return this.listProjectMilestones(projectId, user);
+  }
+
+  // Update an ad-hoc milestone's name / due date.
+  async updateProjectMilestone(projectId: string, rowId: string, body: { name?: string; dueDate?: string | null }, user: any) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { members: true } });
+    if (!project) throw new NotFoundException('Projekt nicht gefunden');
+    this.checkAccess(project, user);
+    const row = await this.prisma.projectMilestone.findFirst({ where: { id: rowId, projectId } });
+    if (!row) throw new NotFoundException('Milestone nicht gefunden');
+
+    await this.prisma.projectMilestone.update({
+      where: { id: rowId },
+      data: {
+        ...(body.name !== undefined && { name: body.name }),
+        ...(body.dueDate !== undefined && { dueDate: body.dueDate ? new Date(body.dueDate) : null }),
+      },
+    });
+    return this.listProjectMilestones(projectId, user);
+  }
+
+  async deleteProjectMilestone(projectId: string, rowId: string, user: any) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { members: true } });
+    if (!project) throw new NotFoundException('Projekt nicht gefunden');
+    this.checkAccess(project, user);
+    await this.prisma.projectMilestone.deleteMany({ where: { id: rowId, projectId } });
+    return this.listProjectMilestones(projectId, user);
+  }
+
   async toggleProjectMilestone(
     projectId: string,
     rowId: string,
@@ -772,6 +832,9 @@ export class ProjectsService {
     user: any,
     comment?: string,
   ) {
+    const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { members: true } });
+    if (!project) throw new NotFoundException('Projekt nicht gefunden');
+    this.checkAccess(project, user);
     const row = await this.prisma.projectMilestone.findFirst({ where: { id: rowId, projectId } });
     if (!row) throw new NotFoundException('Milestone nicht gefunden');
 

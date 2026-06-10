@@ -1,35 +1,30 @@
 
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, BadRequestException, HttpException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { SupabaseStorageService } from '../documents/supabase-storage.service';
 import { EmailService } from '../email/email.service';
+import { isManager } from '../../common/access.util';
 import { Task, Role } from '@prisma/client';
 
 @Injectable()
 export class TasksService {
-    async getHistory(taskId: string) {
-      try {
-        return await this.prisma.taskHistory.findMany({
-          where: { taskId },
-          include: { user: true },
-          orderBy: { createdAt: 'desc' },
-        });
-      } catch (e) {
-        throw new Error('Failed to fetch task history');
-      }
+    async getHistory(taskId: string, user?: any) {
+      await this.assertTaskAccess(taskId, user);
+      return this.prisma.taskHistory.findMany({
+        where: { taskId },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { createdAt: 'desc' },
+      });
     }
 
-    async getTimeEntries(taskId: string) {
-      try {
-        return await this.prisma.timeEntry.findMany({
-          where: { taskId },
-          orderBy: { startedAt: 'desc' },
-          include: { user: true },
-        });
-      } catch (e) {
-        throw new Error('Failed to fetch time entries');
-      }
+    async getTimeEntries(taskId: string, user?: any) {
+      await this.assertTaskAccess(taskId, user);
+      return this.prisma.timeEntry.findMany({
+        where: { taskId },
+        orderBy: { startedAt: 'desc' },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      });
     }
   constructor(
     private prisma: PrismaService,
@@ -38,8 +33,23 @@ export class TasksService {
     private email: EmailService,
   ) {}
 
+  // Task access: management sees all; otherwise must be assignee, creator, or an extra assignee.
+  private async assertTaskAccess(taskId: string, user: any): Promise<any> {
+    const task = await this.prisma.task.findUnique({ where: { id: taskId } });
+    if (!task) throw new NotFoundException('Task not found');
+    if (isManager(user?.role)) return task;
+    const extra = Array.isArray(task.assigneeIds) ? (task.assigneeIds as any[]) : [];
+    const allowed =
+      task.assignedToUserId === user?.userId ||
+      task.createdByUserId === user?.userId ||
+      extra.includes(user?.userId);
+    if (!allowed) throw new ForbiddenException('Access denied');
+    return task;
+  }
+
   // ─── Task Documents ───
-  async getDocuments(taskId: string) {
+  async getDocuments(taskId: string, user?: any) {
+    await this.assertTaskAccess(taskId, user);
     return this.prisma.taskDocument.findMany({
       where: { taskId },
       include: { uploadedBy: { select: { id: true, name: true } } },
@@ -48,6 +58,8 @@ export class TasksService {
   }
 
   async uploadDocument(taskId: string, file: Express.Multer.File, category: string | undefined, user: any) {
+    await this.assertTaskAccess(taskId, user);
+    if (!file) throw new BadRequestException('Keine Datei hochgeladen');
     const url = await this.storage.uploadFile(`tasks/${taskId}`, file);
     return this.prisma.taskDocument.create({
       data: {
@@ -66,14 +78,24 @@ export class TasksService {
   async deleteDocument(docId: string, user: any) {
     const doc = await this.prisma.taskDocument.findUnique({ where: { id: docId } });
     if (!doc) throw new NotFoundException('Dokument nicht gefunden');
+    await this.assertTaskAccess(doc.taskId, user);
     if (doc.url.includes('supabase.co')) {
       await this.storage.deleteFile(doc.url).catch(() => {});
     }
     await this.prisma.taskDocument.delete({ where: { id: docId } });
     return { deleted: true };
   }
+  // Resolve the primary phase link. When a ProjectPhase is selected, mirror its code into
+  // the denormalized `phase` string so existing badges/grouping keep working unchanged.
+  private async resolvePhaseCode(projectPhaseId?: string | null): Promise<string | null> {
+    if (!projectPhaseId) return null;
+    const pp = await this.prisma.projectPhase.findUnique({ where: { id: projectPhaseId }, select: { code: true } });
+    return pp?.code ?? null;
+  }
+
   async updateTask(id: string, body: any, user: any) {
-    const { title, description, dueDate, estimate, status, priority, assignedToUserId, accountId, contactId, dealId, phase, specification, assigneeIds, budgetHours } = body;
+    await this.assertTaskAccess(id, user);
+    const { title, description, dueDate, estimate, status, priority, assignedToUserId, accountId, contactId, dealId, phase, specification, assigneeIds, budgetHours, projectPhaseId, isPaymentReminder } = body;
     const data: any = {};
     if (title !== undefined) data.title = title;
     if (description !== undefined) data.description = description;
@@ -86,7 +108,14 @@ export class TasksService {
     if (contactId !== undefined) data.contactId = contactId || null;
     if (dealId !== undefined) data.dealId = dealId || null;
     if (body.projectId !== undefined) data.projectId = body.projectId || null;
-    if (phase !== undefined) data.phase = phase || null;
+    if (projectPhaseId !== undefined) {
+      data.projectPhaseId = projectPhaseId || null;
+      // Keep the denormalized phase code in sync with the linked phase.
+      data.phase = await this.resolvePhaseCode(projectPhaseId);
+    } else if (phase !== undefined) {
+      data.phase = phase || null;
+    }
+    if (isPaymentReminder !== undefined) data.isPaymentReminder = !!isPaymentReminder;
     if (specification !== undefined) data.specification = specification || null;
     if (assigneeIds !== undefined) data.assigneeIds = assigneeIds;
     if (budgetHours !== undefined) data.budgetHours = budgetHours !== null && budgetHours !== '' ? Number(budgetHours) : null;
@@ -181,8 +210,12 @@ export class TasksService {
       specification,
       assigneeIds,
       budgetHours,
+      projectPhaseId,
+      isPaymentReminder,
     } = body;
-    if (!title) throw new Error('Title is required');
+    if (!title) throw new BadRequestException('Title is required');
+    // When a ProjectPhase is linked, mirror its code into `phase`; otherwise keep the raw SIA code.
+    const mirroredPhase = projectPhaseId ? await this.resolvePhaseCode(projectPhaseId) : (phase || undefined);
     const task = await this.prisma.task.create({
       data: {
         title,
@@ -195,10 +228,12 @@ export class TasksService {
         contactId: contactId || undefined,
         dealId: dealId || undefined,
         projectId: body.projectId || undefined,
-        phase: phase || undefined,
+        projectPhaseId: projectPhaseId || undefined,
+        phase: mirroredPhase || undefined,
         specification: specification || undefined,
         assigneeIds: assigneeIds || undefined,
         budgetHours: budgetHours ? Number(budgetHours) : undefined,
+        isPaymentReminder: !!isPaymentReminder,
         createdByUserId,
       },
     });
@@ -252,6 +287,7 @@ export class TasksService {
   }
 
   async updateStatus(id: string, status: string, user: any) {
+    await this.assertTaskAccess(id, user);
     const old = await this.prisma.task.findUnique({
       where: { id },
       select: { status: true, title: true, assignedToUserId: true, createdByUserId: true, linkedFromPhase: { select: { id: true, status: true } } },
@@ -294,6 +330,7 @@ export class TasksService {
   }
 
   async updatePriority(id: string, priority: string, user: any) {
+    await this.assertTaskAccess(id, user);
     const old = await this.prisma.task.findUnique({ where: { id }, select: { priority: true } });
     const updated = await this.prisma.task.update({ where: { id }, data: { priority: priority as any } });
     if (user?.userId && old && priority !== old.priority) {
@@ -304,16 +341,13 @@ export class TasksService {
     return updated;
   }
 
-  async getComments(taskId: string) {
-    try {
-      return await this.prisma.comment.findMany({
-        where: { taskId },
-        include: { author: true },
-        orderBy: { createdAt: 'desc' },
-      });
-    } catch (e) {
-      throw new Error('Failed to fetch comments');
-    }
+  async getComments(taskId: string, user?: any) {
+    await this.assertTaskAccess(taskId, user);
+    return this.prisma.comment.findMany({
+      where: { taskId },
+      include: { author: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: 'desc' },
+    });
   }
 
 async addComment(taskId: string, text: string, user: any) {
@@ -322,7 +356,7 @@ async addComment(taskId: string, text: string, user: any) {
 
   const comment = await this.prisma.comment.create({
     data: { taskId, text, authorId },
-    include: { author: true },
+    include: { author: { select: { id: true, name: true, email: true } } },
   });
 
   const task = await this.prisma.task.findUnique({
@@ -348,9 +382,9 @@ async addComment(taskId: string, text: string, user: any) {
 
   async addTimeEntry(taskId: string, body: any, user: any) {
     try {
-      const { startedAt, endedAt, description, userId, projectId, phase } = body;
+      const { startedAt, endedAt, description, userId, projectId, phase, projectPhaseId } = body;
       if (!startedAt || !endedAt) {
-        throw new Error('startedAt and endedAt are required');
+        throw new BadRequestException('startedAt and endedAt are required');
       }
       const resolvedUserId = (user && user.userId) || userId || 'anonymous';
 
@@ -358,10 +392,12 @@ async addComment(taskId: string, text: string, user: any) {
       let resolvedAccountId: string | undefined = body.accountId;
       const taskRow = await this.prisma.task.findUnique({
         where: { id: taskId },
-        select: { accountId: true, projectId: true },
+        select: { accountId: true, projectId: true, projectPhaseId: true, phase: true },
       });
       if (!resolvedAccountId) resolvedAccountId = taskRow?.accountId || undefined;
       const resolvedProjectId = projectId || taskRow?.projectId || undefined;
+      // Link the entry to the task's project phase so it counts toward that phase's Kontingent.
+      const resolvedProjectPhaseId = projectPhaseId || taskRow?.projectPhaseId || undefined;
       if (!resolvedAccountId && resolvedProjectId) {
         const proj = await this.prisma.project.findUnique({
           where: { id: resolvedProjectId },
@@ -378,7 +414,7 @@ async addComment(taskId: string, text: string, user: any) {
       const start = new Date(startedAt);
       const end = new Date(endedAt);
       if (end.getTime() <= start.getTime()) {
-        throw new Error('Endzeit muss nach Startzeit liegen');
+        throw new BadRequestException('Endzeit muss nach Startzeit liegen');
       }
       const durationInt = Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
       const entry = await this.prisma.timeEntry.create({
@@ -387,7 +423,8 @@ async addComment(taskId: string, text: string, user: any) {
           userId: resolvedUserId,
           accountId: resolvedAccountId,
           projectId: resolvedProjectId,
-          phase: phase || undefined,
+          projectPhaseId: resolvedProjectPhaseId,
+          phase: phase || taskRow?.phase || undefined,
           startedAt: start,
           endedAt: end,
           durationMinutes: durationInt,
@@ -404,6 +441,7 @@ async addComment(taskId: string, text: string, user: any) {
       });
       return entry;
     } catch (e: any) {
+      if (e instanceof HttpException) throw e;
       throw new Error('Failed to add time entry: ' + (typeof e === 'object' && e !== null && 'message' in e ? (e as any).message : String(e)));
     }
   }
@@ -413,9 +451,9 @@ async addComment(taskId: string, text: string, user: any) {
       const task = await this.prisma.task.findUnique({
         where: { id },
         include: {
-          comments: { include: { author: true }, orderBy: { createdAt: 'desc' } },
-          history: { include: { user: true }, orderBy: { createdAt: 'desc' } },
-          timeEntries: { include: { user: true, account: true, task: true } },
+          comments: { include: { author: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: 'desc' } },
+          history: { include: { user: { select: { id: true, name: true, email: true } } }, orderBy: { createdAt: 'desc' } },
+          timeEntries: { include: { user: { select: { id: true, name: true, email: true } }, account: true, task: true } },
           project: { select: { id: true, name: true } },
           account: { select: { id: true, name: true } },
           assignee: { select: { id: true, name: true } },
@@ -435,11 +473,14 @@ async addComment(taskId: string, text: string, user: any) {
       if (!user || !user.role) {
         return task;
       }
-      if (user.role !== Role.ADMIN && task.assignedToUserId !== user.userId && task.createdByUserId !== user.userId) {
+      const extra = Array.isArray(task.assigneeIds) ? (task.assigneeIds as any[]) : [];
+      if (!isManager(user.role) && task.assignedToUserId !== user.userId && task.createdByUserId !== user.userId && !extra.includes(user.userId)) {
         throw new ForbiddenException('Access denied');
       }
       return task;
     } catch (e) {
+      // Preserve real HTTP errors (404/403); only wrap unexpected failures.
+      if (e instanceof HttpException) throw e;
       throw new Error('Failed to fetch task details');
     }
   }

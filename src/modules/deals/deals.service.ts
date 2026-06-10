@@ -257,7 +257,14 @@ export class DealsService {
       },
     });
     await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Deal', entityId: id, action: 'UPDATE', payloadJson: { name: updated.name, ...(Object.keys(changes).length > 0 ? { changes } : {}) } });
-    return updated;
+
+    // If the stage changed to a "won" stage via the edit form, auto-create the project too.
+    let createdProjectId: string | null = null;
+    if (stageId !== deal.stageId) {
+      const toStage = await this.prisma.dealStage.findUnique({ where: { id: stageId } });
+      if (toStage?.isWon) createdProjectId = await this.ensureProjectForWonDeal(deal, toStage, user);
+    }
+    return { ...updated, createdProjectId } as Deal;
   }
 
   async delete(id: string, user: any): Promise<{ deleted: boolean }> {
@@ -593,52 +600,90 @@ export class DealsService {
     }
 
     // Auto-create Project when Deal is won (if no project exists yet)
-    if (toStage.isWon) {
-      const existingProject = await this.prisma.project.findFirst({ where: { dealId } });
-      if (!existingProject) {
-        const account = deal.accountId ? await this.prisma.account.findUnique({ where: { id: deal.accountId } }) : null;
-        try {
-          const newProject = await this.prisma.project.create({
-            data: {
-              name: deal.name,
-              dealId,
-              accountId: deal.accountId,
-              ownerUserId: deal.ownerUserId || user.userId,
-              createdByUserId: user.userId,
-              address: account?.address || '',
-              status: 'ACTIVE',
-              type: 'ARCHITECTURE',
-              currency: deal.currency || 'CHF',
-            },
-          });
+    const createdProjectId = await this.ensureProjectForWonDeal(deal, toStage, user);
 
-          // Sync DealPhases -> ProjectPhases (with origin link)
-          const dealPhases = await this.prisma.dealPhase.findMany({
-            where: { dealId, parentId: null },
-            orderBy: { order: 'asc' },
-          });
-          for (const dp of dealPhases) {
-            await this.prisma.projectPhase.create({
-              data: {
-                projectId: newProject.id,
-                name: dp.name,
-                description: dp.description || undefined,
-                order: dp.order,
-                code: dp.code || undefined,
-                status: 'PENDING',
-                budgetHours: dp.hourBudget || undefined,
-                budgetChf: dp.budgetChf || undefined,
-                offeredHours: dp.offeredHours || undefined,
-                originDealPhaseId: dp.id,
-              },
-            }).catch(() => {});
-          }
-        } catch (err: any) {
-          console.error('[Deals] Auto-create project failed:', err.message);
-        }
+    return { ...updatedDeal, createdProjectId };
+  }
+
+  /**
+   * When a deal enters a "won" stage, create its project (idempotent) and copy all phases —
+   * main phases as budget carriers plus their sub-phases (organization only) under each parent.
+   * Returns the project id (existing or newly created), or null if the stage is not a won stage.
+   */
+  private async ensureProjectForWonDeal(deal: Deal, toStage: { isWon: boolean }, user: any): Promise<string | null> {
+    if (!toStage.isWon) return null;
+    const dealId = deal.id;
+    const existingProject = await this.prisma.project.findFirst({ where: { dealId } });
+    if (existingProject) return existingProject.id;
+
+    const account = deal.accountId ? await this.prisma.account.findUnique({ where: { id: deal.accountId } }) : null;
+    try {
+      const newProject = await this.prisma.project.create({
+        data: {
+          name: deal.name,
+          dealId,
+          accountId: deal.accountId,
+          ownerUserId: deal.ownerUserId || user.userId,
+          createdByUserId: user.userId,
+          address: account?.address || '',
+          status: 'ACTIVE',
+          type: 'ARCHITECTURE',
+          currency: deal.currency || 'CHF',
+        },
+      });
+
+      // Sync DealPhases -> ProjectPhases (main phases + their sub-phases, with origin link).
+      // Map each DealPhase id to the created ProjectPhase id so children can reference their parent.
+      const dealPhaseToProjectPhase = new Map<string, string>();
+
+      const mainPhases = await this.prisma.dealPhase.findMany({
+        where: { dealId, parentId: null },
+        orderBy: { order: 'asc' },
+      });
+      for (const dp of mainPhases) {
+        const pp = await this.prisma.projectPhase.create({
+          data: {
+            projectId: newProject.id,
+            name: dp.name,
+            description: dp.description || undefined,
+            order: dp.order,
+            code: dp.code || undefined,
+            status: 'PENDING',
+            budgetHours: dp.hourBudget || undefined,
+            budgetChf: dp.budgetChf || undefined,
+            offeredHours: dp.offeredHours || undefined,
+            originDealPhaseId: dp.id,
+          },
+        });
+        dealPhaseToProjectPhase.set(dp.id, pp.id);
       }
-    }
 
-    return updatedDeal;
+      // Sub-phases: organization only — copied under their parent, no budget bar at project level.
+      const subPhases = await this.prisma.dealPhase.findMany({
+        where: { dealId, parentId: { not: null } },
+        orderBy: { order: 'asc' },
+      });
+      for (const sp of subPhases) {
+        const parentProjectPhaseId = sp.parentId ? dealPhaseToProjectPhase.get(sp.parentId) : undefined;
+        await this.prisma.projectPhase.create({
+          data: {
+            projectId: newProject.id,
+            name: sp.name,
+            description: sp.description || undefined,
+            order: sp.order,
+            code: sp.code || undefined,
+            status: 'PENDING',
+            offeredHours: sp.offeredHours || undefined,
+            originDealPhaseId: sp.id,
+            parentPhaseId: parentProjectPhaseId,
+          },
+        }).catch(() => {});
+      }
+
+      return newProject.id;
+    } catch (err: any) {
+      console.error('[Deals] Auto-create project failed:', err.message);
+      return null;
+    }
   }
 }

@@ -1,9 +1,10 @@
 
 import { RunningTimer, TimeEntry, Role } from '@prisma/client';
-import { Injectable, BadRequestException } from '@nestjs/common';
+import { Injectable, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { forbidden, notFound } from '../../common/error/error.response';
 import { PrismaService } from '../../common/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { isManager } from '../../common/access.util';
 
 @Injectable()
 export class TimeTrackingService {
@@ -12,7 +13,24 @@ export class TimeTrackingService {
     private notifications: NotificationsService,
   ) {}
 
+  // Booking time requires access to the target project: management, owner/creator, or a member.
+  private async assertProjectAccess(projectId: string | undefined | null, user: any): Promise<void> {
+    if (!projectId) return;
+    if (isManager(user?.role)) return;
+    const project = await this.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { ownerUserId: true, createdByUserId: true, members: { select: { userId: true } } },
+    });
+    if (!project) return; // a bad id is handled downstream; don't leak existence here
+    const allowed =
+      project.ownerUserId === user?.userId ||
+      project.createdByUserId === user?.userId ||
+      project.members.some((m) => m.userId === user?.userId);
+    if (!allowed) throw new ForbiddenException('Kein Zugriff auf dieses Projekt');
+  }
+
   async startTimer(user: any, accountId: string, taskId?: string, description?: string, projectId?: string, projectPhaseId?: string): Promise<RunningTimer> {
+    await this.assertProjectAccess(projectId, user);
     const existing = await this.prisma.runningTimer.findUnique({ where: { userId: user.userId } });
     if (existing) throw new BadRequestException('Ein Timer läuft bereits. Stoppe ihn zuerst.');
     return this.prisma.runningTimer.create({
@@ -149,6 +167,8 @@ export class TimeTrackingService {
         projectId = projectId || t.projectId || undefined;
       }
     }
+    // Verify the caller may book time against this project (after task→project resolution).
+    await this.assertProjectAccess(projectId, user);
     if (!accountId && projectId) {
       const proj = await this.prisma.project.findUnique({ where: { id: projectId }, select: { accountId: true } });
       accountId = proj?.accountId || undefined;
@@ -246,7 +266,8 @@ export class TimeTrackingService {
     pageSize = 1000,
   ): Promise<TimeEntry[]> {
     const include = {
-      user: true,
+      // Never serialize the full user record (it contains passwordHash) — only safe fields.
+      user: { select: { id: true, name: true, email: true } },
       account: true,
       task: true,
       project: true,
@@ -346,7 +367,7 @@ export class TimeTrackingService {
   async findById(id: string, user: any): Promise<TimeEntry> {
     const entry = await this.prisma.timeEntry.findUnique({
       where: { id },
-      include: { user: true, account: true, task: true, project: true },
+      include: { user: { select: { id: true, name: true, email: true } }, account: true, task: true, project: true },
     });
     if (!entry) throw notFound('Time entry not found');
     if (!user || !user.role) {

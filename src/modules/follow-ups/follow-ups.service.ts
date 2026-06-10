@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { EmailService, APP_BASE_URL } from '../email/email.service';
+import { isManager } from '../../common/access.util';
 
 @Injectable()
 export class FollowUpsService {
@@ -30,7 +31,7 @@ export class FollowUpsService {
     completed?: boolean;
     dueBefore?: string;
     dueAfter?: string;
-  }) {
+  }, user?: any) {
     const where: any = {};
 
     if (filters.entityType) where.entityType = filters.entityType;
@@ -43,6 +44,9 @@ export class FollowUpsService {
       if (filters.dueBefore) where.dueDate.lte = new Date(filters.dueBefore);
       if (filters.dueAfter) where.dueDate.gte = new Date(filters.dueAfter);
     }
+
+    // Deals are management-only — non-managers never see Deal follow-ups.
+    if (!isManager(user?.role)) where.NOT = { entityType: 'Deal' };
 
     return this.prisma.followUp.findMany({
       where,
@@ -162,7 +166,7 @@ export class FollowUpsService {
     return this.prisma.followUp.delete({ where: { id } });
   }
 
-  async getUpcoming(userId: string, days = 7) {
+  async getUpcoming(userId: string, days = 7, user?: any) {
     const now = new Date();
     const until = new Date();
     until.setDate(until.getDate() + days);
@@ -175,6 +179,8 @@ export class FollowUpsService {
           { assignedToUserId: userId },
           { createdByUserId: userId },
         ],
+        // Non-managers never see Deal follow-ups (deals are management-only).
+        ...(isManager(user?.role) ? {} : { NOT: { entityType: 'Deal' } }),
       },
       include: {
         assignedTo: { select: { id: true, name: true } },

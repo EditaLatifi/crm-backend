@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -23,6 +23,7 @@ export class DocumentsService {
 
   async uploadFile(projectId: string, file: Express.Multer.File, dto: any, user: any) {
     await this.checkProjectAccess(projectId, user);
+    if (!file) throw new BadRequestException('Keine Datei hochgeladen');
     const url = await this.storage.uploadFile(projectId, file);
     const doc = await this.prisma.projectDocument.create({
       data: {

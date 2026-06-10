@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { forbidden, notFound } from '../../common/error/error.response';
 import { PrismaService } from '../../common/prisma.service';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { assertInternal, assertManagerOrOwner, isManager } from '../../common/access.util';
 import { Account, Role } from '@prisma/client';
 
 @Injectable()
@@ -14,6 +15,7 @@ export class AccountsService {
   ) {}
 
   async findAll(user: any, page = 1, pageSize = 100, type?: string): Promise<any[]> {
+    assertInternal(user);
     const where: any = {};
     if (type) where.type = type;
     return this.prisma.account.findMany({
@@ -25,16 +27,22 @@ export class AccountsService {
   }
 
   async findById(id: string, user: any): Promise<any> {
+    assertInternal(user);
     const account = await this.prisma.account.findUnique({
       where: { id },
       include: {
         owner: { select: { id: true, name: true, email: true } },
         contacts: { select: { id: true, name: true, email: true, phone: true, title: true } },
-        deals: {
-          select: { id: true, name: true, amount: true, currency: true, stage: { select: { id: true, name: true, isWon: true, isLost: true } } },
-          orderBy: { createdAt: 'desc' },
-          take: 10,
-        },
+        // Deals are management-only; never expose them on the account detail to non-managers.
+        ...(isManager(user?.role)
+          ? {
+              deals: {
+                select: { id: true, name: true, amount: true, currency: true, stage: { select: { id: true, name: true, isWon: true, isLost: true } } },
+                orderBy: { createdAt: 'desc' as const },
+                take: 10,
+              },
+            }
+          : {}),
       },
     });
     if (!account) throw notFound('Account not found');
@@ -44,14 +52,15 @@ export class AccountsService {
     // Use the authenticated user as owner/creator if available
     const ownerUserId = body.ownerUserId || user?.userId;
     const createdByUserId = body.createdByUserId || user?.userId;
+    assertInternal(user);
     if (!ownerUserId || !createdByUserId) {
-      throw new Error('ownerUserId and createdByUserId are required');
+      throw new BadRequestException('ownerUserId and createdByUserId are required');
     }
     // Prevent duplicate account names
     if (body.name) {
       const existing = await this.prisma.account.findFirst({ where: { name: body.name } });
       if (existing) {
-        throw new Error(`Ein Konto mit dem Namen "${body.name}" existiert bereits.`);
+        throw new ConflictException(`Ein Konto mit dem Namen "${body.name}" existiert bereits.`);
       }
     }
     const account = await this.prisma.account.create({
@@ -83,15 +92,14 @@ export class AccountsService {
     // Only allow update if user is owner or creator or admin
     const account = await this.prisma.account.findUnique({ where: { id } });
     if (!account) throw notFound('Account not found');
-    if (user && user.role !== Role.ADMIN && account.ownerUserId !== user.userId && account.createdByUserId !== user.userId) {
-      throw forbidden('Access denied');
-    }
+    // Management or the owner/creator may edit.
+    assertManagerOrOwner(user, account.ownerUserId, account.createdByUserId);
 
     // Prevent duplicate account names on rename
     if (body.name && body.name !== account.name) {
       const existing = await this.prisma.account.findFirst({ where: { name: body.name, id: { not: id } } });
       if (existing) {
-        throw new Error(`Ein Konto mit dem Namen "${body.name}" existiert bereits.`);
+        throw new ConflictException(`Ein Konto mit dem Namen "${body.name}" existiert bereits.`);
       }
     }
 
@@ -137,9 +145,7 @@ export class AccountsService {
   async delete(id: string, user: any): Promise<{ deleted: boolean }> {
     const account = await this.prisma.account.findUnique({ where: { id } });
     if (!account) throw notFound('Account not found');
-    if (user && user.role !== Role.ADMIN && account.ownerUserId !== user.userId && account.createdByUserId !== user.userId) {
-      throw forbidden('Access denied');
-    }
+    assertManagerOrOwner(user, account.ownerUserId, account.createdByUserId);
     await this.prisma.account.delete({ where: { id } });
     if (user?.userId) {
       await this.activityLogger.logActivity({ actorUserId: user.userId, entityType: 'Account', entityId: id, action: 'DELETE', payloadJson: { name: account.name } });
@@ -148,7 +154,8 @@ export class AccountsService {
   }
 
   // ─── Account Notes (threaded) ───
-  async getNotes(accountId: string) {
+  async getNotes(accountId: string, user?: any) {
+    assertInternal(user);
     return (this.prisma.note as any).findMany({
       where: { accountId },
       include: { createdBy: { select: { id: true, name: true, email: true } } },
@@ -157,6 +164,7 @@ export class AccountsService {
   }
 
   async addNote(accountId: string, content: string, user: any) {
+    assertInternal(user);
     const account = await this.prisma.account.findUnique({ where: { id: accountId }, select: { name: true, ownerUserId: true } });
     if (!account) throw notFound('Konto nicht gefunden');
     const note = await (this.prisma.note as any).create({
@@ -174,7 +182,13 @@ export class AccountsService {
     return note;
   }
 
-  async deleteNote(noteId: string) {
+  async deleteNote(noteId: string, user?: any) {
+    const note = await this.prisma.note.findUnique({ where: { id: noteId } });
+    if (!note) throw notFound('Notiz nicht gefunden');
+    // Management or the note's author may delete it.
+    if (!isManager(user?.role) && note.createdByUserId !== user?.userId) {
+      throw new ForbiddenException('Zugriff verweigert');
+    }
     await this.prisma.note.delete({ where: { id: noteId } });
     return { deleted: true };
   }
@@ -182,12 +196,16 @@ export class AccountsService {
   // ─── Bulk Operations ───
   async bulkAssign(ids: string[], ownerUserId: string, user: any) {
     if (user.role !== Role.ADMIN) throw forbidden('Nur Admins können Konten zuweisen');
+    if (!Array.isArray(ids) || ids.length === 0) throw new BadRequestException('Keine Konten ausgewählt');
+    if (!ownerUserId) throw new BadRequestException('ownerUserId ist erforderlich');
     await this.prisma.account.updateMany({ where: { id: { in: ids } }, data: { ownerUserId } });
     return { updated: ids.length };
   }
 
   async bulkChangeType(ids: string[], type: string, user: any) {
     if (user.role !== Role.ADMIN) throw forbidden('Nur Admins können den Typ ändern');
+    if (!Array.isArray(ids) || ids.length === 0) throw new BadRequestException('Keine Konten ausgewählt');
+    if (!type) throw new BadRequestException('Typ ist erforderlich');
     await this.prisma.account.updateMany({ where: { id: { in: ids } }, data: { type: type as any } });
     return { updated: ids.length };
   }

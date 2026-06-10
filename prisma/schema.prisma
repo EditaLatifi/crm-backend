@@ -546,10 +546,13 @@ model Task {
   deal             Deal?             @relation(fields: [dealId], references: [id], onDelete: SetNull)
   projectId        String?
   project          Project?          @relation("ProjectTasks", fields: [projectId], references: [id], onDelete: SetNull)
-  phase            String? // SIA Leistungsphase code e.g. "31.1", "52"
+  phase            String? // SIA Leistungsphase code e.g. "31.1", "52" — mirror of projectPhase.code when linked
+  projectPhaseId   String? // Primary phase link for project tasks (FK to ProjectPhase)
+  projectPhase     ProjectPhase?     @relation("TaskProjectPhase", fields: [projectPhaseId], references: [id], onDelete: SetNull)
   specification    String? // Free text specification
   assigneeIds      Json? // Additional assignee user IDs array
   budgetHours      Float? // Hour budget for this task
+  isPaymentReminder Boolean          @default(false) // Zahlungserinnerung — marks payment-milestone tasks
   checklists       Json? // Array of { id, title, items: [{ id, text, done }] }
   documents        TaskDocument[]
   timeEntries      TimeEntry[]
@@ -566,6 +569,7 @@ model Task {
   @@index([assignedToUserId])
   @@index([createdByUserId])
   @@index([accountId])
+  @@index([projectPhaseId])
 }
 
 model TaskDocument {
@@ -749,6 +753,10 @@ model ProjectPhase {
   linkedTask          Task?          @relation("PhaseLinkedTask", fields: [linkedTaskId], references: [id])
   originDealPhaseId   String?
   originDealPhase     DealPhase?     @relation("DealPhaseToProjectPhase", fields: [originDealPhaseId], references: [id], onDelete: SetNull)
+  parentPhaseId       String?
+  parent              ProjectPhase?  @relation("ProjectPhaseChildren", fields: [parentPhaseId], references: [id], onDelete: Cascade)
+  children            ProjectPhase[] @relation("ProjectPhaseChildren")
+  tasks               Task[]         @relation("TaskProjectPhase")
   timeEntries         TimeEntry[]
   runningTimers       RunningTimer[]
   createdAt           DateTime       @default(now())
@@ -757,6 +765,7 @@ model ProjectPhase {
   @@index([projectId])
   @@index([status])
   @@index([originDealPhaseId])
+  @@index([parentPhaseId])
 }
 
 model ProjectMember {
@@ -831,18 +840,19 @@ model ConstructionMilestone {
 }
 
 model ProjectMilestone {
-  id                String                @id @default(uuid())
+  id                String                 @id @default(uuid())
   projectId         String
-  project           Project               @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  milestoneId       String
-  milestone         ConstructionMilestone @relation(fields: [milestoneId], references: [id])
+  project           Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  milestoneId       String? // null for ad-hoc per-project milestones (not from the master list)
+  milestone         ConstructionMilestone? @relation(fields: [milestoneId], references: [id])
+  name              String? // ad-hoc milestone name; for master-linked rows fall back to milestone.name
+  dueDate           DateTime?
   order             Int
-  completed         Boolean               @default(false)
+  completed         Boolean                @default(false)
   completedAt       DateTime?
   completedByUserId String?
   comment           String?
 
-  @@unique([projectId, milestoneId])
   @@index([projectId])
 }
 

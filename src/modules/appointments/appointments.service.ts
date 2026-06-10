@@ -1,11 +1,22 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { EmailService } from '../email/email.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { isManager } from '../../common/access.util';
 
 @Injectable()
 export class AppointmentsService {
   constructor(private prisma: PrismaService, private email: EmailService, private notifications: NotificationsService) {}
+
+  // Editing/deleting an appointment requires being its creator/assignee, or management.
+  private async assertCanModify(id: string, user: any) {
+    const appt = await this.prisma.appointment.findUnique({ where: { id } });
+    if (!appt) throw new NotFoundException('Appointment not found');
+    if (!isManager(user?.role) && appt.createdByUserId !== user?.userId && appt.assigneeUserId !== user?.userId) {
+      throw new ForbiddenException('Zugriff verweigert');
+    }
+    return appt;
+  }
 
   async findAll(user: any, upcoming?: boolean) {
     return this.prisma.appointment.findMany({
@@ -125,8 +136,8 @@ export class AppointmentsService {
     return instances;
   }
 
-  async update(id: string, data: any) {
-    await this.findById(id);
+  async update(id: string, data: any, user: any) {
+    await this.assertCanModify(id, user);
     return this.prisma.appointment.update({
       where: { id },
       data: {
@@ -142,8 +153,8 @@ export class AppointmentsService {
     });
   }
 
-  async delete(id: string) {
-    await this.findById(id);
+  async delete(id: string, user: any) {
+    await this.assertCanModify(id, user);
     await this.prisma.appointment.delete({ where: { id } });
     return { deleted: true };
   }

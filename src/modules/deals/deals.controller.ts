@@ -1,9 +1,11 @@
 
 import { Controller, Get, Post, Put, Patch, Delete, Param, Request, Body, UseGuards, UseInterceptors, UploadedFile, Query } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { Role } from '@prisma/client';
 import { DealsService } from './deals.service';
-import { ProjectsService } from '../projects/projects.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/role.decorator';
 import { ChangeDealStageDto } from './dto/change-stage.dto';
 import { CreateDealDto } from './dto/create-deal.dto';
 import { UpdateDealDto } from './dto/update-deal.dto';
@@ -12,18 +14,15 @@ import { CreateAttachmentDto } from './dto/create-attachment.dto';
 import { CreatePhasePaymentDto } from './dto/create-phase-payment.dto';
 import { UpdatePhasePaymentDto } from './dto/update-phase-payment.dto';
 
+// Deals are only visible to ADMIN and PROJEKTLEITER (management).
+// MITARBEITER and EXTERN receive 403 on every deal endpoint.
 @Controller('deals')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.PROJEKTLEITER)
 export class DealsController {
   constructor(
     private readonly dealsService: DealsService,
-    private readonly projectsService: ProjectsService,
   ) {}
-
-  @Post(':id/create-project')
-  async createProjectFromDeal(@Param('id') id: string, @Request() req: any) {
-    return this.projectsService.createFromDeal(id, req.user);
-  }
 
   @Get('/analytics')
   async getAnalytics() {

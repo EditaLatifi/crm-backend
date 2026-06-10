@@ -3,7 +3,8 @@ import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { SkipThrottle } from '@nestjs/throttler';
 
-@SkipThrottle()
+// Login / forgot-password / reset-password stay rate-limited by the global throttler
+// (brute-force protection). Only the frequently-polled refresh endpoint is exempt.
 @Controller('auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
@@ -19,6 +20,7 @@ export class AuthController {
   }
 
   // Refresh: requires a valid (non-expired) JWT, returns a fresh one
+  @SkipThrottle()
   @UseGuards(JwtAuthGuard)
   @Post('refresh')
   async refresh(@Request() req: any) {

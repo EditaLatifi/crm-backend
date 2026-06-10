@@ -16,9 +16,9 @@ export class RolesGuard implements CanActivate {
       return true;
     }
     const { user } = context.switchToHttp().getRequest();
-    // Allow if no user (for dev/testing only)
+    // No authenticated user on a role-protected route → deny (fail closed).
     if (!user) {
-      return true;
+      throw new ForbiddenException('Authentication required');
     }
     if (!requiredRoles.includes(user.role)) {
       throw new ForbiddenException('Forbidden: insufficient role');

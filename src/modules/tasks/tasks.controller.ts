@@ -5,6 +5,7 @@ import { TasksService } from './tasks.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
 
 @Controller('tasks')
+@UseGuards(JwtAuthGuard)
 export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
@@ -32,8 +33,8 @@ export class TasksController {
   }
 
   @Get(':id/comments')
-  async getComments(@Param('id') id: string) {
-    return this.tasksService.getComments(id);
+  async getComments(@Param('id') id: string, @Request() req: any) {
+    return this.tasksService.getComments(id, req.user);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -48,13 +49,13 @@ export class TasksController {
 
 
   @Get(':id/history')
-  async getHistory(@Param('id') id: string) {
-    return this.tasksService.getHistory(id);
+  async getHistory(@Param('id') id: string, @Request() req: any) {
+    return this.tasksService.getHistory(id, req.user);
   }
 
   @Get(':id/time-entries')
-  async getTimeEntries(@Param('id') id: string) {
-    return this.tasksService.getTimeEntries(id);
+  async getTimeEntries(@Param('id') id: string, @Request() req: any) {
+    return this.tasksService.getTimeEntries(id, req.user);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -65,8 +66,8 @@ export class TasksController {
 
   // ─── Task Documents ───
   @Get(':id/documents')
-  async getDocuments(@Param('id') id: string) {
-    return this.tasksService.getDocuments(id);
+  async getDocuments(@Param('id') id: string, @Request() req: any) {
+    return this.tasksService.getDocuments(id, req.user);
   }
 
   @UseGuards(JwtAuthGuard)

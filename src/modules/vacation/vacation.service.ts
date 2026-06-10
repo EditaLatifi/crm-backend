@@ -44,7 +44,7 @@ export class VacationService {
   async create(data: any, user: any) {
     const start = new Date(data.startDate);
     const end = new Date(data.endDate);
-    if (end < start) throw new Error('Enddatum muss nach dem Startdatum liegen');
+    if (end < start) throw new BadRequestException('Enddatum muss nach dem Startdatum liegen');
     const days = this.calcBusinessDays(start, end);
     return this.prisma.vacationRequest.create({
       data: {
@@ -65,7 +65,7 @@ export class VacationService {
     const req = await this.prisma.vacationRequest.findUnique({ where: { id } });
     if (!req) throw new NotFoundException('Antrag nicht gefunden');
     if (req.userId !== user.userId && user.role !== Role.ADMIN) throw new ForbiddenException();
-    if (req.status !== 'PENDING') throw new Error('Nur ausstehende Anträge können storniert werden');
+    if (req.status !== 'PENDING') throw new BadRequestException('Nur ausstehende Anträge können storniert werden');
     return this.prisma.vacationRequest.delete({ where: { id } });
   }
 

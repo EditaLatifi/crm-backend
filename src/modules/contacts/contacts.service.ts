@@ -1,8 +1,9 @@
-import { Injectable, ForbiddenException, NotFoundException, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, ForbiddenException, NotFoundException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { Contact, Role } from '@prisma/client';
 import { ActivityLoggerService } from '../activity/activity-logger.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { assertInternal, assertManager, isManager } from '../../common/access.util';
 
 @Injectable()
 export class ContactsService {
@@ -13,6 +14,7 @@ export class ContactsService {
   ) {}
 
   async deleteContact(id: string, user?: any): Promise<void> {
+    assertManager(user);
     const deleted = await this.prisma.contact.delete({ where: { id } });
     // Log activity
     if (user && user.userId) {
@@ -27,6 +29,7 @@ export class ContactsService {
   }
 
   async findAll(user: any, page = 1, pageSize = 50, search?: string): Promise<{ data: Contact[]; total: number; page: number; pageSize: number }> {
+    assertInternal(user);
     const where: any = {};
     if (search) {
       where.OR = [
@@ -49,12 +52,14 @@ export class ContactsService {
   }
 
   async findById(id: string, user: any): Promise<Contact> {
+    assertInternal(user);
     const contact = await this.prisma.contact.findUnique({ where: { id }, include: { account: true } });
     if (!contact) throw new NotFoundException('Contact not found');
     return contact;
   }
 
   async bulkDelete(ids: string[], user?: any): Promise<{ deleted: number }> {
+    assertManager(user);
     if (!Array.isArray(ids) || ids.length === 0) return { deleted: 0 };
     const result = await this.prisma.contact.deleteMany({ where: { id: { in: ids } } });
     // Log activity for each deleted contact
@@ -73,6 +78,7 @@ export class ContactsService {
   }
 
   async updateContact(id: string, data: any, user: any): Promise<Contact> {
+    assertManager(user);
     const contact = await this.prisma.contact.findUnique({ where: { id }, include: { account: true } });
     if (!contact) throw new NotFoundException('Contact not found');
     const updated = await this.prisma.contact.update({
@@ -100,9 +106,10 @@ export class ContactsService {
   }
 
   async createContact(data: any, user: any): Promise<Contact> {
+    assertInternal(user);
     // Validate required fields
     if (!data.name || !data.email) {
-      throw new Error('Missing required fields: name, email');
+      throw new BadRequestException('Missing required fields: name, email');
     }
     // Optionally, check if account exists and user has access if accountId is provided
     // Create the contact
@@ -128,7 +135,8 @@ export class ContactsService {
   }
 
   // ─── Contact Notes (threaded) ───
-  async getNotes(contactId: string) {
+  async getNotes(contactId: string, user?: any) {
+    assertInternal(user);
     return (this.prisma.note as any).findMany({
       where: { contactId },
       include: { createdBy: { select: { id: true, name: true, email: true } } },
@@ -137,6 +145,7 @@ export class ContactsService {
   }
 
   async addNote(contactId: string, content: string, user: any) {
+    assertInternal(user);
     const contact = await this.prisma.contact.findUnique({
       where: { id: contactId },
       select: { name: true, accountId: true },
@@ -167,7 +176,12 @@ export class ContactsService {
     return note;
   }
 
-  async deleteNote(noteId: string) {
+  async deleteNote(noteId: string, user?: any) {
+    const note = await this.prisma.note.findUnique({ where: { id: noteId } });
+    if (!note) throw new NotFoundException('Notiz nicht gefunden');
+    if (!isManager(user?.role) && note.createdByUserId !== user?.userId) {
+      throw new ForbiddenException('Zugriff verweigert');
+    }
     await this.prisma.note.delete({ where: { id: noteId } });
     return { deleted: true };
   }

@@ -1,9 +1,13 @@
 import { Controller, Get, Post, Patch, Delete, Param, Body, Query, UseGuards, Request } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { AppointmentsService } from './appointments.service';
 import { JwtAuthGuard } from '../../auth/jwt-auth.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/role.decorator';
 
 @Controller('appointments')
-@UseGuards(JwtAuthGuard)
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.ADMIN, Role.PROJEKTLEITER, Role.MITARBEITER, Role.USER)
 export class AppointmentsController {
   constructor(private service: AppointmentsService) {}
 
@@ -23,12 +27,12 @@ export class AppointmentsController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() body: any) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.service.update(id, body, req.user);
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.service.delete(id);
+  delete(@Param('id') id: string, @Request() req: any) {
+    return this.service.delete(id, req.user);
   }
 }

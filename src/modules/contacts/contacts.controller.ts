@@ -61,8 +61,8 @@ export class ContactsController {
 
   // ─── Contact Notes (threaded) ───
   @Get(':id/notes')
-  async getNotes(@Param('id') id: string) {
-    return this.contactsService.getNotes(id);
+  async getNotes(@Param('id') id: string, @Request() req: any) {
+    return this.contactsService.getNotes(id, req.user);
   }
 
   @Post(':id/notes')
@@ -71,7 +71,7 @@ export class ContactsController {
   }
 
   @Delete('notes/:noteId')
-  async deleteNote(@Param('noteId') noteId: string) {
-    return this.contactsService.deleteNote(noteId);
+  async deleteNote(@Param('noteId') noteId: string, @Request() req: any) {
+    return this.contactsService.deleteNote(noteId, req.user);
   }
 }
