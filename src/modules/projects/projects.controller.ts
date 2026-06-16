@@ -177,11 +177,11 @@ export class ProjectsController {
     return this.projectsService.setProjectMilestones(id, body.milestoneIds, req.user);
   }
 
-  // Add a single ad-hoc milestone (name + due date) directly to the project.
+  // Add a single ad-hoc milestone (name + start/end/due dates) directly to the project.
   @Post(':id/milestones/add')
   async addProjectMilestone(
     @Param('id') id: string,
-    @Body() body: { name: string; dueDate?: string },
+    @Body() body: { name: string; dueDate?: string; startDate?: string; endDate?: string },
     @Request() req: any,
   ) {
     return this.projectsService.addProjectMilestone(id, body, req.user);
@@ -191,12 +191,12 @@ export class ProjectsController {
   async toggleProjectMilestone(
     @Param('id') id: string,
     @Param('milestoneRowId') milestoneRowId: string,
-    @Body() body: { completed?: boolean; comment?: string; name?: string; dueDate?: string | null },
+    @Body() body: { completed?: boolean; comment?: string; name?: string; dueDate?: string | null; startDate?: string | null; endDate?: string | null },
     @Request() req: any,
   ) {
-    // Either toggle completion (+optional comment) or edit name/dueDate of an ad-hoc milestone.
-    if (body.name !== undefined || body.dueDate !== undefined) {
-      return this.projectsService.updateProjectMilestone(id, milestoneRowId, { name: body.name, dueDate: body.dueDate }, req.user);
+    // Either edit name/dates of an ad-hoc milestone, or toggle completion (+optional comment).
+    if (body.name !== undefined || body.dueDate !== undefined || body.startDate !== undefined || body.endDate !== undefined) {
+      return this.projectsService.updateProjectMilestone(id, milestoneRowId, { name: body.name, dueDate: body.dueDate, startDate: body.startDate, endDate: body.endDate }, req.user);
     }
     return this.projectsService.toggleProjectMilestone(id, milestoneRowId, !!body.completed, req.user, body.comment);
   }

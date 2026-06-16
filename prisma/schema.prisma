@@ -553,6 +553,7 @@ model Task {
   assigneeIds      Json? // Additional assignee user IDs array
   budgetHours      Float? // Hour budget for this task
   isPaymentReminder Boolean          @default(false) // Zahlungserinnerung — marks payment-milestone tasks
+  isBillableExtra  Boolean           @default(false) // Mehrkosten: hours are billed extra, NOT deducted from the phase Kontingent
   checklists       Json? // Array of { id, title, items: [{ id, text, done }] }
   documents        TaskDocument[]
   timeEntries      TimeEntry[]
@@ -800,6 +801,10 @@ enum ProjectType {
   RENOVATION
   COMMERCIAL
   CUSTOM
+  // IP3 project categories
+  ARCHITEKTUR_UND_BAULEITUNG
+  PROJEKTLEITUNG
+  GENERALPLANER
 }
 
 enum PhaseStatus {
@@ -847,6 +852,8 @@ model ProjectMilestone {
   milestone         ConstructionMilestone? @relation(fields: [milestoneId], references: [id])
   name              String? // ad-hoc milestone name; for master-linked rows fall back to milestone.name
   dueDate           DateTime?
+  startDate         DateTime? // Baufortschritt: Beginn
+  endDate           DateTime? // Baufortschritt: Ende
   order             Int
   completed         Boolean                @default(false)
   completedAt       DateTime?

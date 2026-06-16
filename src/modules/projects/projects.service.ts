@@ -156,6 +156,8 @@ export class ProjectsService {
           deal: { select: { id: true, name: true } },
           owner: { select: { id: true, name: true, email: true } },
           phases: { select: { id: true, name: true, status: true, order: true }, orderBy: { order: 'asc' } },
+          // Baufortschritt progress (completed vs total milestones) for the list view.
+          milestones: { select: { completed: true } },
           members: {
             include: { user: { select: { id: true, name: true, email: true } } },
             take: 5,
@@ -190,7 +192,7 @@ export class ProjectsService {
             completedBy: { select: { id: true, name: true } },
             linkedTask: { select: { id: true, title: true, status: true, dueDate: true, assignedToUserId: true, assignee: { select: { id: true, name: true } } } },
             timeEntries: {
-              select: { id: true, durationMinutes: true, description: true, startedAt: true, user: { select: { id: true, name: true } } },
+              select: { id: true, durationMinutes: true, description: true, startedAt: true, user: { select: { id: true, name: true } }, task: { select: { isBillableExtra: true } } },
               orderBy: { startedAt: 'desc' },
             },
           },
@@ -556,12 +558,15 @@ export class ProjectsService {
   }
 
   async getPhaseKontingent(projectId: string, phaseId: string) {
+    // Pull each time entry with its task's Mehrkosten flag so extra-billable hours are NOT
+    // deducted from the Kontingent (they are reported separately as extraHours).
+    const teSelect = { select: { durationMinutes: true, task: { select: { isBillableExtra: true } } } } as const;
     const phase = await this.prisma.projectPhase.findFirst({
       where: { id: phaseId, projectId },
       include: {
-        timeEntries: { select: { durationMinutes: true } },
+        timeEntries: teSelect,
         // Sub-phases are organization-only; their logged time rolls up into this main phase.
-        children: { select: { timeEntries: { select: { durationMinutes: true } } } },
+        children: { select: { timeEntries: teSelect } },
         originDealPhase: {
           select: { budgetChf: true, offeredHours: true, hourBudget: true },
         },
@@ -572,12 +577,17 @@ export class ProjectsService {
     const budgetHours = phase.budgetHours || 0;
     const budgetChf = phase.budgetChf || phase.originDealPhase?.budgetChf || 0;
     const offeredHours = phase.offeredHours || phase.originDealPhase?.offeredHours || 0;
-    const childMinutes = (phase.children || []).reduce(
-      (s, c) => s + c.timeEntries.reduce((s2, e) => s2 + e.durationMinutes, 0),
-      0,
-    );
-    const usedMinutes = phase.timeEntries.reduce((s, e) => s + e.durationMinutes, 0) + childMinutes;
+
+    // Split logged minutes into Kontingent (counts) vs. Mehrkosten (extra, billed separately).
+    const allEntries = [
+      ...phase.timeEntries,
+      ...(phase.children || []).flatMap((c) => c.timeEntries),
+    ];
+    const isExtra = (e: any) => !!e.task?.isBillableExtra;
+    const usedMinutes = allEntries.filter((e) => !isExtra(e)).reduce((s, e) => s + e.durationMinutes, 0);
+    const extraMinutes = allEntries.filter(isExtra).reduce((s, e) => s + e.durationMinutes, 0);
     const usedHours = usedMinutes / 60;
+    const extraHours = extraMinutes / 60;
     const remaining = Math.max(0, budgetHours - usedHours);
     const percent = budgetHours > 0 ? Math.round((usedHours / budgetHours) * 100) : 0;
 
@@ -588,6 +598,7 @@ export class ProjectsService {
       budgetChf,
       offeredHours,
       usedHours: Math.round(usedHours * 10) / 10,
+      extraHours: Math.round(extraHours * 10) / 10,
       remaining: Math.round(remaining * 10) / 10,
       percent,
       status: percent >= 100 ? 'OVER' : percent >= 80 ? 'WARNING' : 'OK',
@@ -780,8 +791,8 @@ export class ProjectsService {
     return this.listProjectMilestones(projectId, user);
   }
 
-  // Create a single ad-hoc per-project milestone (name + optional due date), not from the master list.
-  async addProjectMilestone(projectId: string, body: { name: string; dueDate?: string }, user: any) {
+  // Create a single ad-hoc per-project milestone (name + optional start/end/due dates), not from the master list.
+  async addProjectMilestone(projectId: string, body: { name: string; dueDate?: string; startDate?: string; endDate?: string }, user: any) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { members: true } });
     if (!project) throw new NotFoundException('Projekt nicht gefunden');
     this.checkAccess(project, user);
@@ -793,14 +804,16 @@ export class ProjectsService {
         projectId,
         name: body.name.trim(),
         dueDate: body.dueDate ? new Date(body.dueDate) : null,
+        startDate: body.startDate ? new Date(body.startDate) : null,
+        endDate: body.endDate ? new Date(body.endDate) : null,
         order,
       },
     });
     return this.listProjectMilestones(projectId, user);
   }
 
-  // Update an ad-hoc milestone's name / due date.
-  async updateProjectMilestone(projectId: string, rowId: string, body: { name?: string; dueDate?: string | null }, user: any) {
+  // Update an ad-hoc milestone's name / dates.
+  async updateProjectMilestone(projectId: string, rowId: string, body: { name?: string; dueDate?: string | null; startDate?: string | null; endDate?: string | null }, user: any) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId }, include: { members: true } });
     if (!project) throw new NotFoundException('Projekt nicht gefunden');
     this.checkAccess(project, user);
@@ -812,6 +825,8 @@ export class ProjectsService {
       data: {
         ...(body.name !== undefined && { name: body.name }),
         ...(body.dueDate !== undefined && { dueDate: body.dueDate ? new Date(body.dueDate) : null }),
+        ...(body.startDate !== undefined && { startDate: body.startDate ? new Date(body.startDate) : null }),
+        ...(body.endDate !== undefined && { endDate: body.endDate ? new Date(body.endDate) : null }),
       },
     });
     return this.listProjectMilestones(projectId, user);

@@ -95,7 +95,7 @@ export class TasksService {
 
   async updateTask(id: string, body: any, user: any) {
     await this.assertTaskAccess(id, user);
-    const { title, description, dueDate, estimate, status, priority, assignedToUserId, accountId, contactId, dealId, phase, specification, assigneeIds, budgetHours, projectPhaseId, isPaymentReminder } = body;
+    const { title, description, dueDate, estimate, status, priority, assignedToUserId, accountId, contactId, dealId, phase, specification, assigneeIds, budgetHours, projectPhaseId, isPaymentReminder, isBillableExtra } = body;
     const data: any = {};
     if (title !== undefined) data.title = title;
     if (description !== undefined) data.description = description;
@@ -116,6 +116,7 @@ export class TasksService {
       data.phase = phase || null;
     }
     if (isPaymentReminder !== undefined) data.isPaymentReminder = !!isPaymentReminder;
+    if (isBillableExtra !== undefined) data.isBillableExtra = !!isBillableExtra;
     if (specification !== undefined) data.specification = specification || null;
     if (assigneeIds !== undefined) data.assigneeIds = assigneeIds;
     if (budgetHours !== undefined) data.budgetHours = budgetHours !== null && budgetHours !== '' ? Number(budgetHours) : null;
@@ -212,6 +213,7 @@ export class TasksService {
       budgetHours,
       projectPhaseId,
       isPaymentReminder,
+      isBillableExtra,
     } = body;
     if (!title) throw new BadRequestException('Title is required');
     // When a ProjectPhase is linked, mirror its code into `phase`; otherwise keep the raw SIA code.
@@ -234,6 +236,7 @@ export class TasksService {
         assigneeIds: assigneeIds || undefined,
         budgetHours: budgetHours ? Number(budgetHours) : undefined,
         isPaymentReminder: !!isPaymentReminder,
+        isBillableExtra: !!isBillableExtra,
         createdByUserId,
       },
     });
