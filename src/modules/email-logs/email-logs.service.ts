@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { EmailService } from '../email/email.service';
+import { assertManagerOrOwner } from '../../common/access.util';
 
 @Injectable()
 export class EmailLogsService {
@@ -63,7 +64,11 @@ export class EmailLogsService {
     });
   }
 
-  async delete(id: string) {
+  async delete(id: string, user: any) {
+    const log = await this.prisma.emailLog.findUnique({ where: { id }, select: { loggedByUserId: true } });
+    if (!log) throw new NotFoundException('E-Mail-Protokoll nicht gefunden');
+    // Only management or the user who logged the email may delete it.
+    assertManagerOrOwner(user, log.loggedByUserId);
     await this.prisma.emailLog.delete({ where: { id } });
     return { deleted: true };
   }

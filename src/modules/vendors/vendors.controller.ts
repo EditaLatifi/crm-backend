@@ -14,7 +14,7 @@ export class VendorsController {
   findAll(@Request() req: any) { return this.service.findAll(req.user); }
 
   @Get('vendors/:id')
-  findById(@Param('id') id: string) { return this.service.findById(id); }
+  findById(@Param('id') id: string, @Request() req: any) { return this.service.findById(id, req.user); }
 
   @Get('projects/:projectId/vendors')
   findByProject(@Param('projectId') projectId: string, @Request() req: any) {

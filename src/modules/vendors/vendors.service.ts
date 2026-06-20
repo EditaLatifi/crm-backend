@@ -1,12 +1,16 @@
 import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../../common/prisma.service';
 import { Role } from '@prisma/client';
+import { assertInternal } from '../../common/access.util';
 
 @Injectable()
 export class VendorsService {
   constructor(private prisma: PrismaService) {}
 
   async findAll(user: any) {
+    // Supplier directory is shared across internal staff (needed for project
+    // assignment), but external users must not see it.
+    assertInternal(user);
     return this.prisma.vendor.findMany({
       include: {
         creator: { select: { id: true, name: true } },
@@ -18,7 +22,8 @@ export class VendorsService {
     });
   }
 
-  async findById(id: string) {
+  async findById(id: string, user: any) {
+    assertInternal(user);
     const vendor = await this.prisma.vendor.findUnique({
       where: { id },
       include: {

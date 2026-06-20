@@ -29,12 +29,16 @@ export class AppointmentsService {
     });
   }
 
-  async findById(id: string) {
+  async findById(id: string, user: any) {
     const appt = await this.prisma.appointment.findUnique({
       where: { id },
       include: { account: { select: { id: true, name: true } }, contact: { select: { id: true, name: true } }, deal: { select: { id: true, name: true } } },
     });
     if (!appt) throw new NotFoundException('Appointment not found');
+    // Only the creator/assignee or management may view a single appointment.
+    if (!isManager(user?.role) && appt.createdByUserId !== user?.userId && appt.assigneeUserId !== user?.userId) {
+      throw new ForbiddenException('Zugriff verweigert');
+    }
     return appt;
   }
 

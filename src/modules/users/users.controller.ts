@@ -24,6 +24,16 @@ export class UsersController {
     return this.usersService.createUser({ email, name, role, password });
   }
 
+  // NOTE: literal routes must be declared BEFORE the ':id' wildcard, otherwise
+  // Nest matches @Patch(':id') first and 'profile' is captured as an id.
+  @Patch('profile')
+  @UseGuards(JwtAuthGuard)
+  async updateProfile(@Body() body: any, @Request() req: any): Promise<any> {
+    const userId = req.user?.userId || req.user?.id;
+    if (!userId) throw new HttpException('Not authenticated', HttpStatus.UNAUTHORIZED);
+    return this.usersService.updateProfile(userId, { name: body.name, email: body.email });
+  }
+
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
   async updateUser(@Param('id') id: string, @Body() body: any, @Request() req: any): Promise<any> {
@@ -66,14 +76,6 @@ export class UsersController {
     const user = await this.usersService.findById(userId);
     if (!user) return { error: 'User not found' };
     return user;
-  }
-
-  @Patch('profile')
-  @UseGuards(JwtAuthGuard)
-  async updateProfile(@Body() body: any, @Request() req: any): Promise<any> {
-    const userId = req.user?.userId || req.user?.id;
-    if (!userId) throw new HttpException('Not authenticated', HttpStatus.UNAUTHORIZED);
-    return this.usersService.updateProfile(userId, { name: body.name, email: body.email });
   }
 
   @Post('change-password')

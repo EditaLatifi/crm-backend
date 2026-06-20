@@ -17,8 +17,8 @@ export class AppointmentsController {
   }
 
   @Get(':id')
-  findById(@Param('id') id: string) {
-    return this.service.findById(id);
+  findById(@Param('id') id: string, @Request() req: any) {
+    return this.service.findById(id, req.user);
   }
 
   @Post()

@@ -23,7 +23,7 @@ export class EmailLogsController {
   }
 
   @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.service.delete(id);
+  delete(@Param('id') id: string, @Request() req: any) {
+    return this.service.delete(id, req.user);
   }
 }

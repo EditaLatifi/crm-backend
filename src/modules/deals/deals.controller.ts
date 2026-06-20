@@ -187,16 +187,13 @@ export class DealsController {
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
   ): Promise<any> {
-    try {
-      return await this.dealsService.findAll(
-        req.user,
-        page ? Number(page) : 1,
-        pageSize ? Number(pageSize) : 50,
-        search,
-      );
-    } catch (e) {
-      return { data: [], total: 0, page: 1, pageSize: 50 };
-    }
+    // Let real failures surface (don't mask them as an empty page).
+    return this.dealsService.findAll(
+      req.user,
+      page ? Number(page) : 1,
+      pageSize ? Number(pageSize) : 50,
+      search,
+    );
   }
 
   @Get(':id')
