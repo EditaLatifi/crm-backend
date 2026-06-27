@@ -155,7 +155,7 @@ export class ProjectsService {
           account: { select: { id: true, name: true } },
           deal: { select: { id: true, name: true } },
           owner: { select: { id: true, name: true, email: true } },
-          phases: { select: { id: true, name: true, status: true, order: true }, orderBy: { order: 'asc' } },
+          phases: { select: { id: true, name: true, status: true, order: true, budgetHours: true }, orderBy: { order: 'asc' } },
           // Baufortschritt progress (completed vs total milestones) for the list view.
           milestones: { select: { completed: true } },
           members: {
@@ -190,9 +190,10 @@ export class ProjectsService {
           orderBy: { order: 'asc' },
           include: {
             completedBy: { select: { id: true, name: true } },
+            responsible: { select: { id: true, name: true } },
             linkedTask: { select: { id: true, title: true, status: true, dueDate: true, assignedToUserId: true, assignee: { select: { id: true, name: true } } } },
             timeEntries: {
-              select: { id: true, durationMinutes: true, description: true, startedAt: true, user: { select: { id: true, name: true } }, task: { select: { isBillableExtra: true } } },
+              select: { id: true, durationMinutes: true, description: true, startedAt: true, isBillableExtra: true, user: { select: { id: true, name: true } }, task: { select: { isBillableExtra: true } } },
               orderBy: { startedAt: 'desc' },
             },
           },
@@ -211,10 +212,25 @@ export class ProjectsService {
   private redactProject(project: any, user: any): any {
     if (user?.role === Role.ADMIN) return project;
     if (user?.role === Role.EXTERN) {
-      const { budget, budgetHours, notes, account, phases, ...safe } = project;
+      // External client: sees progress (phases WITHOUT internal hours) and the agreed price (budget).
+      // No internal hour budgets, no internal notes, no internal contact data.
+      const { budgetHours, notes, account, phases, ...rest } = project;
+      const safePhases = Array.isArray(phases)
+        ? phases.map((ph: any) => { const { timeEntries, budgetHours: _bh, ...phr } = ph; return phr; })
+        : phases;
+      return { ...rest, phases: safePhases };
+    }
+    if (user?.role === Role.PROJEKTLEITER) {
+      // Manager: sees financials incl. Kunden-Offerte (budget) and Kontingent (budgetHours).
+      // Internal notes and raw account contact details stay hidden.
+      const { notes, account, ...safe } = project;
+      if (account) {
+        const { phone, email, ...accountSafe } = account;
+        return { ...safe, account: accountSafe };
+      }
       return safe;
     }
-    // PROJEKTLEITER / MITARBEITER: hide Kunden-Offerte (budget) but keep Kontingent (budgetHours)
+    // MITARBEITER (+ legacy USER): hide Kunden-Offerte (budget) but keep Kontingent (budgetHours)
     const { budget, notes, account, ...safe } = project;
     if (account) {
       const { phone, email, ...accountSafe } = account;
@@ -369,7 +385,9 @@ export class ProjectsService {
   async update(id: string, dto: UpdateProjectDto, user: any) {
     const project = await this.prisma.project.findUnique({ where: { id } });
     if (!project) throw new NotFoundException('Projekt nicht gefunden');
-    if (user.role !== Role.ADMIN && project.ownerUserId !== user.userId && project.createdByUserId !== user.userId) {
+    // ADMIN and PROJEKTLEITER are co-managers (PL already sees all projects); owners/creators too.
+    const isManager = user.role === Role.ADMIN || user.role === Role.PROJEKTLEITER;
+    if (!isManager && project.ownerUserId !== user.userId && project.createdByUserId !== user.userId) {
       throw new ForbiddenException('Zugriff verweigert');
     }
 
@@ -386,7 +404,7 @@ export class ProjectsService {
         address: dto.address,
         budget: dto.budget,
         budgetHours: (dto as any).budgetHours !== undefined
-          ? (user.role === Role.ADMIN ? (dto as any).budgetHours : undefined)
+          ? (isManager ? (dto as any).budgetHours : undefined)
           : undefined,
         currency: dto.currency,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
@@ -467,8 +485,8 @@ export class ProjectsService {
         parentPhaseId: body.parentPhaseId || null,
         startDate: body.startDate ? new Date(body.startDate) : null,
         endDate: body.endDate ? new Date(body.endDate) : null,
-        // budgetHours is the internal Kontingent — ADMIN only (matches updatePhase).
-        budgetHours: user.role === Role.ADMIN ? (body.budgetHours ?? null) : null,
+        // budgetHours is the internal Kontingent — managers (ADMIN + PROJEKTLEITER) may set it.
+        budgetHours: (user.role === Role.ADMIN || user.role === Role.PROJEKTLEITER) ? (body.budgetHours ?? null) : null,
         linkedTaskId: task.id,
       },
       include: { linkedTask: true },
@@ -507,7 +525,7 @@ export class ProjectsService {
         notes: dto.notes,
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
-        budgetHours: dto.budgetHours !== undefined && user.role === Role.ADMIN ? dto.budgetHours : undefined,
+        budgetHours: dto.budgetHours !== undefined && (user.role === Role.ADMIN || user.role === Role.PROJEKTLEITER) ? dto.budgetHours : undefined,
         completedAt: isCompleting ? new Date() : (isReopening ? null : undefined),
         completedByUserId: isCompleting ? user.userId : (isReopening ? null : undefined),
       },
@@ -560,7 +578,7 @@ export class ProjectsService {
   async getPhaseKontingent(projectId: string, phaseId: string) {
     // Pull each time entry with its task's Mehrkosten flag so extra-billable hours are NOT
     // deducted from the Kontingent (they are reported separately as extraHours).
-    const teSelect = { select: { durationMinutes: true, task: { select: { isBillableExtra: true } } } } as const;
+    const teSelect = { select: { durationMinutes: true, isBillableExtra: true, task: { select: { isBillableExtra: true } } } } as const;
     const phase = await this.prisma.projectPhase.findFirst({
       where: { id: phaseId, projectId },
       include: {
@@ -583,7 +601,8 @@ export class ProjectsService {
       ...phase.timeEntries,
       ...(phase.children || []).flatMap((c) => c.timeEntries),
     ];
-    const isExtra = (e: any) => !!e.task?.isBillableExtra;
+    // Mehrkosten flag now lives on the entry; fall back to the task flag during transition.
+    const isExtra = (e: any) => !!(e.isBillableExtra || e.task?.isBillableExtra);
     const usedMinutes = allEntries.filter((e) => !isExtra(e)).reduce((s, e) => s + e.durationMinutes, 0);
     const extraMinutes = allEntries.filter(isExtra).reduce((s, e) => s + e.durationMinutes, 0);
     const usedHours = usedMinutes / 60;
@@ -868,8 +887,8 @@ export class ProjectsService {
   async addMember(projectId: string, userId: string, role: string | undefined, user: any) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException('Projekt nicht gefunden');
-    if (user.role !== Role.ADMIN && project.ownerUserId !== user.userId) {
-      throw new ForbiddenException('Nur Admins oder Projektinhaber können Mitglieder hinzufügen');
+    if (user.role !== Role.ADMIN && user.role !== Role.PROJEKTLEITER && project.ownerUserId !== user.userId) {
+      throw new ForbiddenException('Nur Admins, Projektleiter oder Projektinhaber können Mitglieder hinzufügen');
     }
     return this.prisma.projectMember.upsert({
       where: { projectId_userId: { projectId, userId } },
@@ -882,7 +901,7 @@ export class ProjectsService {
   async removeMember(projectId: string, userId: string, user: any) {
     const project = await this.prisma.project.findUnique({ where: { id: projectId } });
     if (!project) throw new NotFoundException('Projekt nicht gefunden');
-    if (user.role !== Role.ADMIN && project.ownerUserId !== user.userId) {
+    if (user.role !== Role.ADMIN && user.role !== Role.PROJEKTLEITER && project.ownerUserId !== user.userId) {
       throw new ForbiddenException('Zugriff verweigert');
     }
     await this.prisma.projectMember.deleteMany({ where: { projectId, userId } });
@@ -890,7 +909,8 @@ export class ProjectsService {
   }
 
   private checkAccess(project: any, user: any) {
-    if (user.role === Role.ADMIN) return;
+    // ADMIN and PROJEKTLEITER are managers with access to all projects (PL already sees all in the list).
+    if (user.role === Role.ADMIN || user.role === Role.PROJEKTLEITER) return;
     const isMember = project.members?.some((m: any) => m.userId === user.userId);
     if (
       project.ownerUserId !== user.userId &&

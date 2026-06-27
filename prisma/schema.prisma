@@ -84,6 +84,7 @@ enum NotificationType {
   APPOINTMENT_CREATED
   PERMIT_STATUS_CHANGED
   VACATION_REVIEWED
+  VACATION_REQUESTED
   FOLLOW_UP_CREATED
   FOLLOW_UP_DUE
 }
@@ -292,6 +293,7 @@ model User {
   createdProjects      Project[]               @relation("ProjectCreator")
   projectMemberships   ProjectMember[]         @relation("ProjectMembers")
   completedPhases      ProjectPhase[]          @relation("PhaseCompletedBy")
+  responsiblePhases    ProjectPhase[]          @relation("ProjectPhaseResponsible")
   createdPermits       Permit[]                @relation("PermitCreator")
   permitHistories      PermitHistory[]         @relation("PermitHistoryActor")
   createdVendors       Vendor[]                @relation("VendorCreator")
@@ -620,6 +622,7 @@ model TimeEntry {
   phase           String?
   description     String?
   overBudgetReason String?
+  isBillableExtra Boolean       @default(false) // Mehrkosten: counted separately, not against the phase Kontingent
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -642,6 +645,7 @@ model RunningTimer {
   projectPhase   ProjectPhase? @relation(fields: [projectPhaseId], references: [id], onDelete: SetNull)
   startedAt      DateTime
   description    String?
+  isBillableExtra Boolean      @default(false)
 }
 
 model Activity {
@@ -742,7 +746,10 @@ model ProjectPhase {
   status              PhaseStatus    @default(PENDING)
   startDate           DateTime?
   endDate             DateTime?
+  dueDate             DateTime?
   notes               String?
+  responsibleUserId   String?
+  responsible         User?          @relation("ProjectPhaseResponsible", fields: [responsibleUserId], references: [id])
   budgetHours         Float?
   budgetChf           Float?
   offeredHours        Float?

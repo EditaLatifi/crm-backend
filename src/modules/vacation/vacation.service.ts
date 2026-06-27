@@ -46,7 +46,7 @@ export class VacationService {
     const end = new Date(data.endDate);
     if (end < start) throw new BadRequestException('Enddatum muss nach dem Startdatum liegen');
     const days = this.calcBusinessDays(start, end);
-    return this.prisma.vacationRequest.create({
+    const created = await this.prisma.vacationRequest.create({
       data: {
         userId: user.userId,
         startDate: start,
@@ -58,6 +58,22 @@ export class VacationService {
       },
       include: { user: { select: USER_SELECT } },
     });
+    // Notify all admins so approvals don't sit unseen until someone opens the page (T3-10).
+    try {
+      const admins = await this.prisma.user.findMany({ where: { role: Role.ADMIN }, select: { id: true } });
+      const fmt = (d: Date) => d.toLocaleDateString('de-CH');
+      const name = (created as any).user?.name || 'Ein Mitarbeiter';
+      await Promise.all(admins.map(a => this.notifications.createForUser(
+        a.id,
+        'VACATION_REQUESTED',
+        'Neuer Urlaubsantrag',
+        `${name} hat ${days} Tag(e) beantragt (${fmt(start)} – ${fmt(end)}).`,
+        'VacationRequest',
+        created.id,
+        '/admin/vacation',
+      )));
+    } catch { /* notification is best-effort, never blocks the request */ }
+    return created;
   }
 
   /** Employee: cancel own pending request */

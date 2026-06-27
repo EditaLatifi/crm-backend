@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, ForbiddenException } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { PrismaService } from '../../common/prisma.service';
 
 const SYSTEM_ACTIONS = ['timer_stop'];
@@ -61,6 +62,8 @@ export class ActivityService {
 
   async findAll(user: any, filters: ActivityFilters): Promise<{ data: any[]; total: number; page: number; pageSize: number }> {
     if (!user) return { data: [], total: 0, page: 1, pageSize: 25 };
+    // The audit log is firm-wide and sensitive — restrict to ADMIN (matches the admin-only nav item).
+    if (user.role !== Role.ADMIN) throw new ForbiddenException('Zugriff verweigert');
 
     const where: any = {};
     if (filters.userId) where.actorUserId = filters.userId;

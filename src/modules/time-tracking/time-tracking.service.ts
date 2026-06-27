@@ -29,19 +29,138 @@ export class TimeTrackingService {
     if (!allowed) throw new ForbiddenException('Kein Zugriff auf dieses Projekt');
   }
 
-  async startTimer(user: any, accountId: string, taskId?: string, description?: string, projectId?: string, projectPhaseId?: string): Promise<RunningTimer> {
+  // ── Phase is the single time carrier ────────────────────────────────────────────────
+  // Resolve the MAIN project phase a time entry must attach to.
+  // - sub-phase -> its parent main phase
+  // - no phase given -> the project's "Allgemein" catch-all main phase (auto-created if missing)
+  // - project derived from the task when only a task is given
+  private async resolveTimePhase(opts: { projectId?: string; projectPhaseId?: string; taskId?: string }): Promise<{ projectId: string; projectPhaseId: string; accountId: string }> {
+    let projectId = opts.projectId || undefined;
+    let projectPhaseId = opts.projectPhaseId || undefined;
+    if ((!projectId || !projectPhaseId) && opts.taskId) {
+      const t = await this.prisma.task.findUnique({ where: { id: opts.taskId }, select: { projectId: true, projectPhaseId: true } });
+      projectId = projectId || t?.projectId || undefined;
+      if (!projectPhaseId) projectPhaseId = t?.projectPhaseId || undefined;
+    }
+    if (projectPhaseId) {
+      const ph = await this.prisma.projectPhase.findUnique({ where: { id: projectPhaseId }, select: { id: true, parentPhaseId: true, projectId: true } });
+      if (ph) {
+        projectId = projectId || ph.projectId;
+        projectPhaseId = ph.parentPhaseId || ph.id; // always store the MAIN phase
+      } else {
+        projectPhaseId = undefined;
+      }
+    }
+    if (!projectId) throw new BadRequestException('Projekt ist erforderlich, um Zeit zu erfassen.');
+    if (!projectPhaseId) {
+      // Auto-create / reuse an "Allgemein" catch-all main phase so time entry is never blocked.
+      let allg = await this.prisma.projectPhase.findFirst({ where: { projectId, parentPhaseId: null, name: 'Allgemein' }, select: { id: true } });
+      if (!allg) {
+        const order = await this.prisma.projectPhase.count({ where: { projectId } });
+        allg = await this.prisma.projectPhase.create({ data: { projectId, name: 'Allgemein', order, status: 'PENDING' }, select: { id: true } });
+      }
+      projectPhaseId = allg.id;
+    }
+    const proj = await this.prisma.project.findUnique({ where: { id: projectId }, select: { accountId: true } });
+    let accountId = proj?.accountId || undefined;
+    if (!accountId) {
+      const fb = await this.prisma.account.findFirst({ select: { id: true } });
+      if (!fb) throw new BadRequestException('Kein Konto verfügbar.');
+      accountId = fb.id;
+    }
+    return { projectId, projectPhaseId, accountId };
+  }
+
+  // The ONE writer of TimeEntry. Resolves the main phase, runs the single Kontingent check
+  // (Mehrkosten excluded), and creates the row. Every entry point delegates here.
+  private async createPhaseTimeEntry(input: {
+    userId: string; actingUser: any;
+    projectId?: string; projectPhaseId?: string; taskId?: string;
+    durationMinutes: number; startedAt: Date; endedAt: Date;
+    description?: string | null; isBillableExtra?: boolean; overBudgetReason?: string;
+  }): Promise<{ entry: any; kontingentWarning: string | null; overBudget: boolean; projectPhaseId: string }> {
+    const { projectId, projectPhaseId, accountId } = await this.resolveTimePhase({ projectId: input.projectId, projectPhaseId: input.projectPhaseId, taskId: input.taskId });
+    const minutes = input.durationMinutes;
+    const isExtra = !!input.isBillableExtra;
+
+    let kontingentWarning: string | null = null;
+    let overBudget = false;
+    if (!isExtra) {
+      const phase = await this.prisma.projectPhase.findUnique({
+        where: { id: projectPhaseId },
+        include: {
+          timeEntries: { select: { durationMinutes: true, isBillableExtra: true } },
+          children: { select: { timeEntries: { select: { durationMinutes: true, isBillableExtra: true } } } },
+        },
+      });
+      if (phase?.budgetHours && phase.budgetHours > 0) {
+        const all = [...phase.timeEntries, ...phase.children.flatMap((c) => c.timeEntries)].filter((e) => !e.isBillableExtra);
+        const usedHours = all.reduce((s, e) => s + e.durationMinutes, 0) / 60;
+        const afterBooking = usedHours + minutes / 60;
+        const pct = (afterBooking / phase.budgetHours) * 100;
+        if (afterBooking > phase.budgetHours) {
+          overBudget = true;
+          if (!input.overBudgetReason || !input.overBudgetReason.trim()) {
+            throw new BadRequestException('Begründung für Budgetüberschreitung erforderlich.');
+          }
+          kontingentWarning = `Kontingent überschritten (${afterBooking.toFixed(1)}h / ${phase.budgetHours}h)`;
+          const proj = await this.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, name: true, ownerUserId: true } });
+          if (proj?.ownerUserId && proj.ownerUserId !== input.userId) {
+            this.notifications.createForUser(proj.ownerUserId, 'BUDGET_WARNING', 'Kontingent überschritten', `Buchung in "${proj.name}": ${afterBooking.toFixed(1)}h / ${phase.budgetHours}h`, 'Project', proj.id, `/projects/${proj.id}`).catch(() => {});
+          }
+        } else if (pct >= 80) {
+          kontingentWarning = `${pct.toFixed(0)}% des Kontingents verbraucht (${afterBooking.toFixed(1)}h / ${phase.budgetHours}h)`;
+        }
+      }
+    }
+
+    const entry = await this.prisma.timeEntry.create({
+      data: {
+        userId: input.userId,
+        accountId,
+        projectId,
+        projectPhaseId,
+        taskId: input.taskId || null,
+        startedAt: input.startedAt,
+        endedAt: input.endedAt,
+        durationMinutes: minutes,
+        description: input.description || null,
+        isBillableExtra: isExtra,
+        overBudgetReason: overBudget ? input.overBudgetReason!.trim() : null,
+      },
+      include: {
+        user: { select: { id: true, name: true } },
+        project: { select: { id: true, name: true } },
+        projectPhase: { select: { id: true, name: true } },
+      },
+    });
+    return { entry, kontingentWarning, overBudget, projectPhaseId };
+  }
+
+  async startTimer(user: any, accountId: string, taskId?: string, description?: string, projectId?: string, projectPhaseId?: string, isBillableExtra?: boolean): Promise<RunningTimer> {
     await this.assertProjectAccess(projectId, user);
     const existing = await this.prisma.runningTimer.findUnique({ where: { userId: user.userId } });
     if (existing) throw new BadRequestException('Ein Timer läuft bereits. Stoppe ihn zuerst.');
+    // Resolve to the MAIN phase up front so the booking on stop is always phase-attributed.
+    let resolvedProjectId = projectId || undefined;
+    let resolvedPhaseId = projectPhaseId || undefined;
+    let resolvedAccountId = accountId;
+    if (projectId || projectPhaseId || taskId) {
+      const r = await this.resolveTimePhase({ projectId, projectPhaseId, taskId });
+      resolvedProjectId = r.projectId;
+      resolvedPhaseId = r.projectPhaseId;
+      resolvedAccountId = accountId || r.accountId;
+    }
     return this.prisma.runningTimer.create({
       data: {
         userId: user.userId,
-        accountId,
+        accountId: resolvedAccountId,
         taskId: taskId || null,
         description: description || null,
-        projectId: projectId || null,
-        projectPhaseId: projectPhaseId || null,
+        projectId: resolvedProjectId || null,
+        projectPhaseId: resolvedPhaseId || null,
         startedAt: new Date(),
+        isBillableExtra: !!isBillableExtra,
       },
       include: { account: true, task: true },
     });
@@ -74,65 +193,35 @@ export class TimeTrackingService {
     const startedAt = runningTimer.startedAt;
     const durationMinutes = Math.max(1, Math.floor((endedAt.getTime() - startedAt.getTime()) / 60000));
 
-    // Kontingent-check: same logic as manualEntry
-    let kontingentWarning: string | null = null;
-    let overBudget = false;
-    const phaseId = (runningTimer as any).projectPhaseId;
-    if (phaseId) {
-      const phase = await this.prisma.projectPhase.findUnique({
-        where: { id: phaseId },
-        include: { timeEntries: { select: { durationMinutes: true } } },
-      });
-      if (phase?.budgetHours && phase.budgetHours > 0) {
-        const usedMinutes = phase.timeEntries.reduce((s, e) => s + e.durationMinutes, 0);
-        const usedHours = usedMinutes / 60;
-        const afterBooking = usedHours + (durationMinutes / 60);
-        const usagePercent = (afterBooking / phase.budgetHours) * 100;
+    // Delegate to the single phase-keyed writer (resolves main phase, one Kontingent check).
+    const { entry, kontingentWarning, overBudget, projectPhaseId } = await this.createPhaseTimeEntry({
+      userId: user.userId,
+      actingUser: user,
+      projectId: (runningTimer as any).projectId || undefined,
+      projectPhaseId: (runningTimer as any).projectPhaseId || undefined,
+      taskId: runningTimer.taskId || undefined,
+      durationMinutes,
+      startedAt,
+      endedAt,
+      description: runningTimer.description || undefined,
+      isBillableExtra: runningTimer.isBillableExtra || false,
+      overBudgetReason: overBudgetReasonInput,
+    });
 
-        if (afterBooking > phase.budgetHours) {
-          overBudget = true;
-          if (!overBudgetReasonInput || !overBudgetReasonInput.trim()) {
-            throw new BadRequestException('Begründung für Budgetüberschreitung erforderlich.');
-          }
-          kontingentWarning = `Kontingent überschritten (${afterBooking.toFixed(1)}h / ${phase.budgetHours}h)`;
-          const proj = await this.prisma.project.findFirst({ where: { phases: { some: { id: phaseId } } }, select: { id: true, name: true, ownerUserId: true } });
-          if (proj?.ownerUserId && proj.ownerUserId !== user.userId) {
-            this.notifications.createForUser(proj.ownerUserId, 'BUDGET_WARNING', 'Kontingent überschritten', `Timer-Buchung in "${proj.name}": ${afterBooking.toFixed(1)}h / ${phase.budgetHours}h`, 'Project', proj.id, `/projects/${proj.id}`).catch(() => {});
-          }
-        } else if (usagePercent >= 80) {
-          kontingentWarning = `${usagePercent.toFixed(0)}% des Kontingents verbraucht`;
-        }
-      }
-    }
-
-    const [_, timeEntry, __] = await this.prisma.$transaction([
+    await this.prisma.$transaction([
       this.prisma.runningTimer.delete({ where: { userId: user.userId } }),
-      this.prisma.timeEntry.create({
-        data: {
-          userId: user.userId,
-          accountId: runningTimer.accountId,
-          taskId: runningTimer.taskId,
-          projectId: (runningTimer as any).projectId || null,
-          projectPhaseId: phaseId || null,
-          startedAt,
-          endedAt,
-          durationMinutes,
-          description: runningTimer.description || undefined,
-          overBudgetReason: overBudget ? overBudgetReasonInput!.trim() : null,
-        },
-      }),
       this.prisma.activity.create({
         data: {
           actorUserId: user.userId,
           entityType: 'TimeEntry',
-          entityId: runningTimer.id,
+          entityId: entry.id,
           action: 'timer_stop',
-          payloadJson: { startedAt, endedAt, durationMinutes, accountId: runningTimer.accountId, taskId: runningTimer.taskId, overBudget },
+          payloadJson: { startedAt, endedAt, durationMinutes, accountId: entry.accountId, projectPhaseId, taskId: runningTimer.taskId, overBudget },
         },
       }),
     ]);
     return {
-      timeEntry,
+      timeEntry: entry,
       ...(kontingentWarning ? { kontingentWarning } : {}),
       ...(overBudget ? { overBudget: true } : {}),
     };
@@ -147,109 +236,92 @@ export class TimeTrackingService {
       taskId?: string;
       hours?: number;
       durationMinutes?: number;
+      startedAt?: string | Date;
+      endedAt?: string | Date;
       date?: string;
       description?: string;
       employeeUserId?: string;
       overBudgetReason?: string;
+      isBillableExtra?: boolean;
     },
   ): Promise<TimeEntry> {
     const userId = body.employeeUserId && user.role === Role.ADMIN ? body.employeeUserId : user.userId;
 
-    let accountId = body.accountId;
+    // Resolve project from task if needed, then verify access.
     let projectId = body.projectId;
-    if (body.taskId) {
-      const t = await this.prisma.task.findUnique({
-        where: { id: body.taskId },
-        select: { accountId: true, projectId: true },
-      });
-      if (t) {
-        accountId = accountId || t.accountId || undefined;
-        projectId = projectId || t.projectId || undefined;
-      }
+    if (!projectId && body.taskId) {
+      const t = await this.prisma.task.findUnique({ where: { id: body.taskId }, select: { projectId: true } });
+      projectId = t?.projectId || undefined;
     }
-    // Verify the caller may book time against this project (after task→project resolution).
     await this.assertProjectAccess(projectId, user);
-    if (!accountId && projectId) {
-      const proj = await this.prisma.project.findUnique({ where: { id: projectId }, select: { accountId: true } });
-      accountId = proj?.accountId || undefined;
-    }
-    if (!accountId) {
-      const fallback = await this.prisma.account.findFirst({ select: { id: true } });
-      if (!fallback) throw new BadRequestException('Kein Konto verfügbar.');
-      accountId = fallback.id;
-    }
 
-    const minutes = body.durationMinutes ?? Math.round((body.hours || 0) * 60);
+    // Accept every input shape: explicit durationMinutes, decimal hours, OR a start..end window.
+    let minutes = body.durationMinutes ?? (body.hours != null ? Math.round(body.hours * 60) : undefined);
+    let startedAt: Date;
+    let endedAt: Date;
+    if (minutes == null && body.startedAt && body.endedAt) {
+      startedAt = new Date(body.startedAt);
+      endedAt = new Date(body.endedAt);
+      minutes = Math.max(1, Math.round((endedAt.getTime() - startedAt.getTime()) / 60000));
+    } else {
+      if (!minutes || minutes < 1) throw new BadRequestException('Stunden sind erforderlich.');
+      startedAt = body.date ? new Date(body.date) : new Date();
+      startedAt.setHours(9, 0, 0, 0);
+      endedAt = new Date(startedAt.getTime() + minutes * 60000);
+    }
     if (!minutes || minutes < 1) throw new BadRequestException('Stunden sind erforderlich.');
     if (minutes > 840) throw new BadRequestException('Maximale Erfassung pro Eintrag: 14 Stunden.');
-    if (minutes > 600) {
-      // Warning threshold: 10h = 600min — logged but allowed
-      console.warn(`[TimeTracking] Hohe Stundenerfassung: ${minutes} Minuten (${(minutes / 60).toFixed(1)}h) für User ${userId}`);
-    }
 
-    // ── Kontingent-Check: validate against phase budget before saving ──
-    let kontingentWarning: string | null = null;
-    let overBudget = false;
-    if (body.projectPhaseId) {
-      const phase = await this.prisma.projectPhase.findUnique({
-        where: { id: body.projectPhaseId },
-        include: { timeEntries: { select: { durationMinutes: true } } },
-      });
-      if (phase?.budgetHours && phase.budgetHours > 0) {
-        const usedMinutes = phase.timeEntries.reduce((s, e) => s + e.durationMinutes, 0);
-        const usedHours = usedMinutes / 60;
-        const budgetHours = phase.budgetHours;
-        const afterBooking = usedHours + (minutes / 60);
-        const usagePercent = (afterBooking / budgetHours) * 100;
-
-        if (afterBooking > budgetHours) {
-          overBudget = true;
-          if (!body.overBudgetReason || !body.overBudgetReason.trim()) {
-            throw new BadRequestException('Begründung für Budgetüberschreitung erforderlich.');
-          }
-          kontingentWarning = `Kontingent wird überschritten. Verbleibend vor Buchung: ${(budgetHours - usedHours).toFixed(1)}h`;
-          // Notify project owner about kontingent exceeded
-          const proj = await this.prisma.project.findFirst({ where: { phases: { some: { id: body.projectPhaseId } } }, select: { id: true, name: true, ownerUserId: true } });
-          if (proj?.ownerUserId && proj.ownerUserId !== user.userId) {
-            this.notifications.createForUser(proj.ownerUserId, 'BUDGET_WARNING', 'Kontingent überschritten', `Phase-Budget in "${proj.name}" überschritten (${afterBooking.toFixed(1)}h / ${budgetHours}h)`, 'Project', proj.id, `/projects/${proj.id}`).catch(() => {});
-          }
-        } else if (usagePercent >= 80) {
-          kontingentWarning = `Achtung: ${usagePercent.toFixed(0)}% des Kontingents verbraucht (${afterBooking.toFixed(1)}h / ${budgetHours}h)`;
-          const proj = await this.prisma.project.findFirst({ where: { phases: { some: { id: body.projectPhaseId } } }, select: { id: true, name: true, ownerUserId: true } });
-          if (proj?.ownerUserId && proj.ownerUserId !== user.userId) {
-            this.notifications.createForUser(proj.ownerUserId, 'BUDGET_WARNING', 'Kontingent-Warnung', `Phase-Budget in "${proj.name}" bei ${usagePercent.toFixed(0)}%`, 'Project', proj.id, `/projects/${proj.id}`).catch(() => {});
-          }
-        }
-      }
-    }
-
-    const startedAt = body.date ? new Date(body.date) : new Date();
-    startedAt.setHours(9, 0, 0, 0);
-    const endedAt = new Date(startedAt.getTime() + minutes * 60000);
-
-    const entry = await this.prisma.timeEntry.create({
-      data: {
-        userId,
-        accountId,
-        projectId: projectId || null,
-        projectPhaseId: body.projectPhaseId || null,
-        taskId: body.taskId || null,
-        startedAt,
-        endedAt,
-        durationMinutes: minutes,
-        description: body.description || null,
-        overBudgetReason: overBudget ? body.overBudgetReason!.trim() : null,
-      },
-      include: {
-        user: { select: { id: true, name: true } },
-        project: { select: { id: true, name: true } },
-        projectPhase: { select: { id: true, name: true } },
-      },
+    // Delegate to the single phase-keyed writer.
+    const { entry, kontingentWarning, overBudget } = await this.createPhaseTimeEntry({
+      userId,
+      actingUser: user,
+      projectId,
+      projectPhaseId: body.projectPhaseId,
+      taskId: body.taskId,
+      durationMinutes: minutes,
+      startedAt,
+      endedAt,
+      description: body.description,
+      isBillableExtra: body.isBillableExtra,
+      overBudgetReason: body.overBudgetReason,
     });
     if (kontingentWarning || overBudget) {
       return { ...entry, ...(kontingentWarning ? { kontingentWarning } : {}), ...(overBudget ? { overBudget: true } : {}) } as any;
     }
     return entry;
+  }
+
+  // Public entry used by other modules (e.g. task time tab) — same single writer.
+  async logTime(user: any, input: {
+    userId?: string; projectId?: string; projectPhaseId?: string; taskId?: string;
+    durationMinutes?: number; hours?: number; startedAt?: string | Date; endedAt?: string | Date; date?: string;
+    description?: string | null; isBillableExtra?: boolean; overBudgetReason?: string;
+  }): Promise<any> {
+    const userId = input.userId || user.userId;
+    let minutes = input.durationMinutes ?? (input.hours != null ? Math.round(input.hours * 60) : undefined);
+    let startedAt: Date;
+    let endedAt: Date;
+    if (input.startedAt && input.endedAt) {
+      startedAt = new Date(input.startedAt);
+      endedAt = new Date(input.endedAt);
+      minutes = minutes ?? Math.max(1, Math.floor((endedAt.getTime() - startedAt.getTime()) / 60000));
+    } else {
+      if (!minutes || minutes < 1) throw new BadRequestException('Stunden sind erforderlich.');
+      startedAt = input.date ? new Date(input.date) : new Date();
+      startedAt.setHours(9, 0, 0, 0);
+      endedAt = new Date(startedAt.getTime() + minutes * 60000);
+    }
+    if (minutes! > 840) throw new BadRequestException('Maximale Erfassung pro Eintrag: 14 Stunden.');
+    const { entry, kontingentWarning, overBudget } = await this.createPhaseTimeEntry({
+      userId, actingUser: user,
+      projectId: input.projectId, projectPhaseId: input.projectPhaseId, taskId: input.taskId,
+      durationMinutes: minutes!, startedAt, endedAt,
+      description: input.description, isBillableExtra: input.isBillableExtra, overBudgetReason: input.overBudgetReason,
+    });
+    return (kontingentWarning || overBudget)
+      ? { ...entry, ...(kontingentWarning ? { kontingentWarning } : {}), ...(overBudget ? { overBudget: true } : {}) }
+      : entry;
   }
 
   async discardTimer(user: any): Promise<{ discarded: boolean }> {
@@ -275,8 +347,9 @@ export class TimeTrackingService {
     };
     const where: any = {};
 
-    // Role-based base filter
-    if (user && user.role && user.role !== Role.ADMIN) {
+    // Role-based base filter: management (ADMIN + PROJEKTLEITER) sees all entries so the budget and
+    // team views are accurate; regular employees (MITARBEITER) see only their own.
+    if (!isManager(user?.role)) {
       where.userId = user.userId;
     }
 
@@ -303,7 +376,9 @@ export class TimeTrackingService {
 
   async getOverview(user: any, filters: { from?: string; to?: string; userId?: string } = {}) {
     const where: any = {};
-    if (user.role !== Role.ADMIN) {
+    // Management (ADMIN + PROJEKTLEITER) sees the whole team's time (optionally filtered to one user);
+    // regular employees see only their own.
+    if (!isManager(user?.role)) {
       where.userId = user.userId;
     } else if (filters.userId) {
       where.userId = filters.userId;
@@ -399,7 +474,17 @@ export class TimeTrackingService {
       data.endedAt = new Date(entry.startedAt.getTime() + mins * 60000);
     }
     if (body.description !== undefined) data.description = body.description;
-    if (body.projectPhaseId !== undefined) data.projectPhaseId = body.projectPhaseId || null;
+    if (body.isBillableExtra !== undefined) data.isBillableExtra = !!body.isBillableExtra;
+    if (body.projectPhaseId !== undefined) {
+      if (body.projectPhaseId) {
+        // Normalize to the MAIN phase (same as the write path) so the "time lives on the main
+        // phase" invariant can never be broken by a re-point to a sub-phase.
+        const resolved = await this.resolveTimePhase({ projectPhaseId: body.projectPhaseId, projectId: entry.projectId || undefined });
+        data.projectPhaseId = resolved.projectPhaseId;
+      } else {
+        data.projectPhaseId = null;
+      }
+    }
     return this.prisma.timeEntry.update({ where: { id }, data });
   }
 

@@ -24,6 +24,8 @@ export class ProjectsController {
   }
 
   @Get('budget-overview')
+  @UseGuards(RolesGuard)
+  @Roles(Role.ADMIN, Role.PROJEKTLEITER) // CHF budget overview — managers only
   async getBudgetOverview(@Request() req: any) {
     return this.projectsService.getBudgetOverview(req.user);
   }
@@ -81,7 +83,7 @@ export class ProjectsController {
 
   @Post()
   @UseGuards(RolesGuard)
-  @Roles(Role.ADMIN)
+  @Roles(Role.ADMIN, Role.PROJEKTLEITER) // managers (incl. Projektleiter) may create projects
   async create(@Body() dto: CreateProjectDto, @Request() req: any) {
     return this.projectsService.create(dto, req.user);
   }

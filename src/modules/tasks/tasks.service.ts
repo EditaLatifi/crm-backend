@@ -5,6 +5,7 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SupabaseStorageService } from '../documents/supabase-storage.service';
 import { EmailService } from '../email/email.service';
 import { isManager } from '../../common/access.util';
+import { TimeTrackingService } from '../time-tracking/time-tracking.service';
 import { Task, Role } from '@prisma/client';
 
 @Injectable()
@@ -31,6 +32,7 @@ export class TasksService {
     private notifications: NotificationsService,
     private storage: SupabaseStorageService,
     private email: EmailService,
+    private timeTracking: TimeTrackingService,
   ) {}
 
   // Task access: management sees all; otherwise must be assignee, creator, or an extra assignee.
@@ -384,69 +386,29 @@ async addComment(taskId: string, text: string, user: any) {
 
 
   async addTimeEntry(taskId: string, body: any, user: any) {
-    try {
-      const { startedAt, endedAt, description, userId, projectId, phase, projectPhaseId } = body;
-      if (!startedAt || !endedAt) {
-        throw new BadRequestException('startedAt and endedAt are required');
-      }
-      const resolvedUserId = (user && user.userId) || userId || 'anonymous';
-
-      // Auto-resolve accountId from body, then task, then project, then any account
-      let resolvedAccountId: string | undefined = body.accountId;
-      const taskRow = await this.prisma.task.findUnique({
-        where: { id: taskId },
-        select: { accountId: true, projectId: true, projectPhaseId: true, phase: true },
-      });
-      if (!resolvedAccountId) resolvedAccountId = taskRow?.accountId || undefined;
-      const resolvedProjectId = projectId || taskRow?.projectId || undefined;
-      // Link the entry to the task's project phase so it counts toward that phase's Kontingent.
-      const resolvedProjectPhaseId = projectPhaseId || taskRow?.projectPhaseId || undefined;
-      if (!resolvedAccountId && resolvedProjectId) {
-        const proj = await this.prisma.project.findUnique({
-          where: { id: resolvedProjectId },
-          select: { accountId: true },
-        });
-        resolvedAccountId = proj?.accountId || undefined;
-      }
-      if (!resolvedAccountId) {
-        const fallback = await this.prisma.account.findFirst({ select: { id: true } });
-        if (!fallback) throw new Error('Kein Konto verfügbar.');
-        resolvedAccountId = fallback.id;
-      }
-
-      const start = new Date(startedAt);
-      const end = new Date(endedAt);
-      if (end.getTime() <= start.getTime()) {
-        throw new BadRequestException('Endzeit muss nach Startzeit liegen');
-      }
-      const durationInt = Math.max(1, Math.floor((end.getTime() - start.getTime()) / 60000));
-      const entry = await this.prisma.timeEntry.create({
-        data: {
-          taskId,
-          userId: resolvedUserId,
-          accountId: resolvedAccountId,
-          projectId: resolvedProjectId,
-          projectPhaseId: resolvedProjectPhaseId,
-          phase: phase || taskRow?.phase || undefined,
-          startedAt: start,
-          endedAt: end,
-          durationMinutes: durationInt,
-          description,
-        },
-      });
-      await this.prisma.taskHistory.create({
-        data: {
-          taskId,
-          action: 'TIME_LOGGED',
-          payload: { durationMinutes: durationInt, description },
-          userId: resolvedUserId,
-        },
-      });
-      return entry;
-    } catch (e: any) {
-      if (e instanceof HttpException) throw e;
-      throw new Error('Failed to add time entry: ' + (typeof e === 'object' && e !== null && 'message' in e ? (e as any).message : String(e)));
+    // Phase is the single time carrier: route task time through the ONE time-tracking writer.
+    // It derives project + main phase from the task and applies the single Kontingent check.
+    await this.assertTaskAccess(taskId, user);
+    const { startedAt, endedAt, description, hours, durationMinutes, date, overBudgetReason } = body;
+    if (!startedAt && !endedAt && hours == null && durationMinutes == null) {
+      throw new BadRequestException('Stunden (oder Start/Ende) sind erforderlich.');
     }
+    const task = await this.prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true, projectPhaseId: true, isBillableExtra: true } });
+    const entry: any = await this.timeTracking.logTime(user, {
+      taskId,
+      // Default to the task's project/phase, but honor an explicit phase from the caller (e.g. a
+      // phase's auto-linked task carries no projectPhaseId of its own) so time lands on the right phase.
+      projectId: body.projectId || task?.projectId || undefined,
+      projectPhaseId: body.projectPhaseId || task?.projectPhaseId || undefined,
+      startedAt, endedAt, hours, durationMinutes, date,
+      description,
+      isBillableExtra: task?.isBillableExtra || false,
+      overBudgetReason,
+    });
+    await this.prisma.taskHistory.create({
+      data: { taskId, action: 'TIME_LOGGED', payload: { durationMinutes: entry.durationMinutes, description }, userId: user?.userId },
+    }).catch(() => {});
+    return entry;
   }
 
   async findByIdWithDetails(id: string, user: any) {

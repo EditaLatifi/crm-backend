@@ -7,6 +7,18 @@ import { NotificationsService } from '../notifications/notifications.service';
 import { SupabaseStorageService } from '../documents/supabase-storage.service';
 import { EmailService } from '../email/email.service';
 
+// SIA Leistungsphasen code -> name, used when converting legacy checkbox-based deals into project phases.
+const SIA_PHASE_NAMES: Record<string, string> = {
+  '10': 'Strategie/Planung', '20': 'Vorstudie', '31': 'Vorprojekt', '32': 'Bauprojekt',
+  '33': 'Bewilligungsverfahren', '41': 'Ausschreibung', '51': 'Ausführungsplanung',
+  '52': 'Ausführung', '53': 'Inbetriebnahme', '61': 'Bewirtschaftung',
+};
+
+// DealPhaseStatus -> PhaseStatus. ON_HOLD has no project equivalent, so it falls back to PENDING.
+const DEAL_TO_PROJECT_PHASE_STATUS: Record<string, 'PENDING' | 'IN_PROGRESS' | 'COMPLETED' | 'SKIPPED'> = {
+  PENDING: 'PENDING', IN_PROGRESS: 'IN_PROGRESS', COMPLETED: 'COMPLETED', ON_HOLD: 'PENDING',
+};
+
 @Injectable()
 export class DealsService {
   constructor(
@@ -629,6 +641,8 @@ export class DealsService {
           status: 'ACTIVE',
           type: 'ARCHITECTURE',
           currency: deal.currency || 'CHF',
+          // Carry the deal's expected close date as the project's expected end date (was dropped before).
+          expectedEndDate: (deal as any).expectedCloseDate || undefined,
         },
       });
 
@@ -648,10 +662,13 @@ export class DealsService {
             description: dp.description || undefined,
             order: dp.order,
             code: dp.code || undefined,
-            status: 'PENDING',
-            budgetHours: dp.hourBudget || undefined,
-            budgetChf: dp.budgetChf || undefined,
-            offeredHours: dp.offeredHours || undefined,
+            status: DEAL_TO_PROJECT_PHASE_STATUS[dp.status] || 'PENDING',
+            budgetHours: dp.hourBudget ?? undefined,
+            budgetChf: dp.budgetChf ?? undefined,
+            offeredHours: dp.offeredHours ?? undefined,
+            dueDate: dp.dueDate || undefined,
+            notes: dp.notes || undefined,
+            responsibleUserId: dp.responsibleUserId || undefined,
             originDealPhaseId: dp.id,
           },
         });
@@ -665,20 +682,75 @@ export class DealsService {
       });
       for (const sp of subPhases) {
         const parentProjectPhaseId = sp.parentId ? dealPhaseToProjectPhase.get(sp.parentId) : undefined;
-        await this.prisma.projectPhase.create({
-          data: {
-            projectId: newProject.id,
-            name: sp.name,
-            description: sp.description || undefined,
-            order: sp.order,
-            code: sp.code || undefined,
-            status: 'PENDING',
-            offeredHours: sp.offeredHours || undefined,
-            originDealPhaseId: sp.id,
-            parentPhaseId: parentProjectPhaseId,
-          },
-        }).catch(() => {});
+        try {
+          const spp = await this.prisma.projectPhase.create({
+            data: {
+              projectId: newProject.id,
+              name: sp.name,
+              description: sp.description || undefined,
+              order: sp.order,
+              code: sp.code || undefined,
+              status: DEAL_TO_PROJECT_PHASE_STATUS[sp.status] || 'PENDING',
+              // Carry the user-entered sub-phase budgets too (was dropped before) so nothing is lost.
+              budgetHours: sp.hourBudget ?? undefined,
+              budgetChf: sp.budgetChf ?? undefined,
+              offeredHours: sp.offeredHours ?? undefined,
+              dueDate: sp.dueDate || undefined,
+              notes: sp.notes || undefined,
+              responsibleUserId: sp.responsibleUserId || undefined,
+              originDealPhaseId: sp.id,
+              parentPhaseId: parentProjectPhaseId,
+            },
+          });
+          // Register the sub-phase so its Zahlungsplan payments are copied too (was main-phase only).
+          dealPhaseToProjectPhase.set(sp.id, spp.id);
+        } catch (e: any) { console.error(`[Deals] Failed to copy sub-phase ${sp.code} on conversion:`, e?.message); }
       }
+
+      // FALLBACK (S2): deals built with the legacy SIA checkboxes have NO DealPhase rows.
+      // Synthesize main ProjectPhases from deal.phases[] + deal.phaseBudgets{} so the project is never empty.
+      if (mainPhases.length === 0) {
+        const codes = Array.isArray((deal as any).phases) ? (deal as any).phases : [];
+        const budgets = (deal as any).phaseBudgets && typeof (deal as any).phaseBudgets === 'object' ? (deal as any).phaseBudgets : {};
+        let order = 0;
+        for (const raw of codes) {
+          const code = String(raw);
+          const budget = Number(budgets[code] ?? budgets[raw]);
+          await this.prisma.projectPhase.create({
+            data: {
+              projectId: newProject.id,
+              name: SIA_PHASE_NAMES[code] || `Phase ${code}`,
+              code,
+              order: order++,
+              status: 'PENDING',
+              budgetHours: Number.isFinite(budget) && budget > 0 ? budget : undefined,
+            },
+          }).catch(() => {});
+        }
+      }
+
+      // Copy the deal Zahlungsplan into the project as payment-reminder tasks on the matching phase.
+      try {
+        for (const [dealPhaseId, projPhaseId] of dealPhaseToProjectPhase.entries()) {
+          const payments = await this.prisma.dealPhasePayment.findMany({ where: { dealPhaseId } });
+          for (const pay of payments) {
+            const amountStr = pay.amount != null ? `${pay.amount} ${deal.currency || 'CHF'}` : (pay.percentage != null ? `${pay.percentage}%` : '');
+            await this.prisma.task.create({
+              data: {
+                title: `Zahlung: ${pay.label}${amountStr ? ` (${amountStr})` : ''}`,
+                status: 'OPEN',
+                priority: 'MEDIUM',
+                projectId: newProject.id,
+                projectPhaseId: projPhaseId,
+                accountId: deal.accountId || undefined,
+                isPaymentReminder: true,
+                dueDate: pay.dueDate || undefined,
+                createdByUserId: user.userId,
+              },
+            }).catch((e: any) => console.error(`[Deals] Failed to copy payment "${pay.label}" on conversion:`, e?.message));
+          }
+        }
+      } catch (e: any) { console.error('[Deals] Zahlungsplan copy failed on conversion:', e?.message); }
 
       return newProject.id;
     } catch (err: any) {
