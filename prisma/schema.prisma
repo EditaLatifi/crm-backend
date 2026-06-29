@@ -562,12 +562,14 @@ model Task {
   runningTimers    RunningTimer[]
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
+  archivedAt       DateTime?
   dailyTimeByTask  DailyTimeByTask[]
   comments         Comment[]         @relation("TaskComments")
   history          TaskHistory[]     @relation("TaskHistory")
   estimate         Int?
 
   @@index([status])
+  @@index([archivedAt])
   @@index([dueDate])
   @@index([assignedToUserId])
   @@index([createdByUserId])

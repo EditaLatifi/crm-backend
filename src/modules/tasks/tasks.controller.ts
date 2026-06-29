@@ -21,6 +21,11 @@ export class TasksController {
     return this.tasksService.updateTask(id, body, req.user);
   }
   @UseGuards(JwtAuthGuard)
+  @Delete(':id')
+  async removeTask(@Param('id') id: string, @Request() req: any) {
+    return this.tasksService.remove(id, req.user);
+  }
+  @UseGuards(JwtAuthGuard)
   @Patch(':id/status')
   async updateStatus(@Param('id') id: string, @Body('status') status: string, @Request() req: any) {
     return this.tasksService.updateStatus(id, status, req.user);
@@ -95,6 +100,7 @@ export class TasksController {
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
     @Query('search') search?: string,
+    @Query('includeArchived') includeArchived?: string,
   ): Promise<any> {
     return this.tasksService.findAll(
       req.user,
@@ -102,7 +108,14 @@ export class TasksController {
       page ? Number(page) : 1,
       pageSize ? Number(pageSize) : 50,
       search,
+      includeArchived === 'true',
     );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch(':id/archive')
+  async archiveTask(@Param('id') id: string, @Body('archived') archived: boolean, @Request() req: any) {
+    return this.tasksService.setArchived(id, archived !== false, req.user);
   }
 
   @Get(':id')

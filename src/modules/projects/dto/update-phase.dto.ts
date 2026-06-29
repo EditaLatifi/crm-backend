@@ -29,4 +29,11 @@ export class UpdatePhaseDto {
   @IsOptional()
   @IsNumber()
   budgetHours?: number;
+
+  @IsOptional()
+  responsibleUserId?: string | null;
+
+  @IsOptional()
+  @IsDateString()
+  dueDate?: string | null;
 }

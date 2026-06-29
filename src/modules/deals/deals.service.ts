@@ -330,7 +330,7 @@ export class DealsService {
         account: true,
         owner: { select: { id: true, name: true } },
         creator: { select: { id: true, name: true } },
-        dealPhases: { select: { id: true, code: true, name: true, hourBudget: true, budgetChf: true, parentId: true } },
+        dealPhases: { select: { id: true, code: true, name: true, hourBudget: true, budgetChf: true, parentId: true, responsibleUserId: true, responsible: { select: { id: true, name: true } } } },
       },
     });
     if (!deal) throw new NotFoundException('Deal not found');
@@ -339,6 +339,44 @@ export class DealsService {
 
   // ─── Deal Phases (with sub-phases) ───
   async listPhases(dealId: string, user?: any) {
+    // Single phase editor: make sure every SIA phase the user ticked on the deal is listed here as a
+    // real row (so they can set Mitarbeiter/Stundenbudget/Zahlungsplan + add sub-phases in one place),
+    // and migrate any budget that older deals stored in the legacy phaseBudgets map onto its phase row.
+    // Skip once the deal became a project — phases then live on the project.
+    const deal = await this.prisma.deal.findUnique({ where: { id: dealId }, select: { phases: true, phaseBudgets: true } });
+    const linkedProject = await this.prisma.project.findFirst({ where: { dealId }, select: { id: true } });
+    if (!linkedProject) {
+      const selected: string[] = Array.isArray((deal as any)?.phases) ? (deal as any).phases.map(String) : [];
+      const pb = (deal?.phaseBudgets && typeof deal.phaseBudgets === 'object' && !Array.isArray(deal.phaseBudgets))
+        ? (deal.phaseBudgets as Record<string, any>) : {};
+      const legacyCodes = Object.keys(pb).filter((c) => Number(pb[c]) > 0);
+      if (selected.length || legacyCodes.length) {
+        const existing = await this.prisma.dealPhase.findMany({ where: { dealId }, select: { id: true, code: true, hourBudget: true } });
+        const byCode = new Map<string, any>(existing.map((e) => [String(e.code), e]));
+        let order = await this.prisma.dealPhase.count({ where: { dealId, parentId: null } });
+        const ensureMain = async (code: string) => {
+          if (byCode.has(code)) return byCode.get(code);
+          const row = await this.prisma.dealPhase.create({ data: { dealId, code, name: SIA_PHASE_NAMES[code] || `Phase ${code}`, parentId: null, order: order++ } });
+          byCode.set(code, row); return row;
+        };
+        // 1) selected SIA main phases
+        for (const code of selected) await ensureMain(code);
+        // 2) legacy phaseBudgets -> the phase row's hourBudget (creating the row, sub under its main, if needed)
+        for (const code of legacyCodes) {
+          let row = byCode.get(code);
+          if (!row) {
+            let parentId: string | null = null;
+            if (code.includes('.')) { const parent = await ensureMain(code.split('.')[0]); parentId = parent.id; }
+            row = await this.prisma.dealPhase.create({ data: { dealId, code, name: SIA_PHASE_NAMES[code] || `Phase ${code}`, parentId, order: order++ } });
+            byCode.set(code, row);
+          }
+          if (row.hourBudget == null) await this.prisma.dealPhase.update({ where: { id: row.id }, data: { hourBudget: Number(pb[code]) } });
+        }
+        // 3) legacy map fully migrated → clear it so it never double-counts or caps again
+        if (legacyCodes.length) await this.prisma.deal.update({ where: { id: dealId }, data: { phaseBudgets: {} } });
+      }
+    }
+
     const phases = await this.prisma.dealPhase.findMany({
       where: { dealId, parentId: null },
       include: {
@@ -654,6 +692,10 @@ export class DealsService {
         where: { dealId, parentId: null },
         orderBy: { order: 'asc' },
       });
+      // Track which SIA codes already exist as structured phases, so the checkbox-phases below
+      // are MERGED in (not skipped) when a deal has both structured rows AND ticked SIA phases.
+      const existingCodes = new Set<string>();
+      let maxOrder = -1;
       for (const dp of mainPhases) {
         const pp = await this.prisma.projectPhase.create({
           data: {
@@ -673,6 +715,8 @@ export class DealsService {
           },
         });
         dealPhaseToProjectPhase.set(dp.id, pp.id);
+        if (dp.code) existingCodes.add(String(dp.code));
+        if (typeof dp.order === 'number' && dp.order > maxOrder) maxOrder = dp.order;
       }
 
       // Sub-phases: organization only — copied under their parent, no budget bar at project level.
@@ -707,14 +751,17 @@ export class DealsService {
         } catch (e: any) { console.error(`[Deals] Failed to copy sub-phase ${sp.code} on conversion:`, e?.message); }
       }
 
-      // FALLBACK (S2): deals built with the legacy SIA checkboxes have NO DealPhase rows.
-      // Synthesize main ProjectPhases from deal.phases[] + deal.phaseBudgets{} so the project is never empty.
-      if (mainPhases.length === 0) {
+      // MERGE the ticked SIA phases (deal.phases[] + deal.phaseBudgets{}) — but only those NOT already
+      // created as structured phases. This covers BOTH the legacy case (no DealPhase rows at all) AND
+      // the mixed case (some structured rows + extra ticked SIA phases), so nothing the user selected is lost.
+      {
         const codes = Array.isArray((deal as any).phases) ? (deal as any).phases : [];
         const budgets = (deal as any).phaseBudgets && typeof (deal as any).phaseBudgets === 'object' ? (deal as any).phaseBudgets : {};
-        let order = 0;
+        let order = maxOrder + 1;
         for (const raw of codes) {
           const code = String(raw);
+          if (existingCodes.has(code)) continue; // already carried over as a structured phase
+          existingCodes.add(code);
           const budget = Number(budgets[code] ?? budgets[raw]);
           await this.prisma.projectPhase.create({
             data: {

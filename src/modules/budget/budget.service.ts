@@ -72,8 +72,11 @@ export class BudgetService {
     const totalEstimated = items.reduce((s, i) => s + i.estimatedCost, 0);
     const totalActual = items.reduce((s, i) => s + (i.actualCost ?? 0), 0);
     const budget = project?.budget ?? 0;
-    const remaining = budget - totalActual;
-    const percent = budget > 0 ? Math.round((totalActual / budget) * 100) : 0;
+    // Reference budget: the project's overall budget if set, otherwise the sum of planned cost items.
+    // Without this, a project with cost items but no overall budget showed a wrong negative "Verbleibend".
+    const ref = budget > 0 ? budget : totalEstimated;
+    const remaining = ref - totalActual;
+    const percent = ref > 0 ? Math.round((totalActual / ref) * 100) : 0;
     const byCategory = items.reduce((acc: any, i) => {
       if (!acc[i.category]) acc[i.category] = { estimated: 0, actual: 0 };
       acc[i.category].estimated += i.estimatedCost;
@@ -84,18 +87,21 @@ export class BudgetService {
     // Budget status warnings
     let status: 'OK' | 'WARNING' | 'OVER' = 'OK';
     let warning: string | null = null;
-    if (budget > 0) {
+    if (ref > 0) {
       if (percent >= 100) {
         status = 'OVER';
-        warning = `Budget überschritten: ${percent}% verbraucht (${totalActual.toFixed(2)} / ${budget.toFixed(2)} CHF)`;
+        warning = `Budget überschritten: ${percent}% verbraucht (${totalActual.toFixed(2)} / ${ref.toFixed(2)} CHF)`;
       } else if (percent >= 80) {
         status = 'WARNING';
-        warning = `Achtung: ${percent}% des Budgets verbraucht (${totalActual.toFixed(2)} / ${budget.toFixed(2)} CHF)`;
+        warning = `Achtung: ${percent}% des Budgets verbraucht (${totalActual.toFixed(2)} / ${ref.toFixed(2)} CHF)`;
       }
     }
 
     return {
-      totalBudget: budget,
+      totalBudget: ref,
+      // true = the project has its own overall Baukosten-Budget; false = we fell back to the planned sum.
+      // The UI uses this so "Gesamtbudget" and "Geplant" aren't shown as two identical numbers.
+      budgetSet: budget > 0,
       currency: project?.currency ?? 'CHF',
       totalEstimated,
       totalActual,

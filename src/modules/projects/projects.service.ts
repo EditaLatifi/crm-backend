@@ -526,6 +526,8 @@ export class ProjectsService {
         startDate: dto.startDate ? new Date(dto.startDate) : undefined,
         endDate: dto.endDate ? new Date(dto.endDate) : undefined,
         budgetHours: dto.budgetHours !== undefined && (user.role === Role.ADMIN || user.role === Role.PROJEKTLEITER) ? dto.budgetHours : undefined,
+        responsibleUserId: (dto as any).responsibleUserId !== undefined ? ((dto as any).responsibleUserId || null) : undefined,
+        dueDate: (dto as any).dueDate !== undefined ? ((dto as any).dueDate ? new Date((dto as any).dueDate) : null) : undefined,
         completedAt: isCompleting ? new Date() : (isReopening ? null : undefined),
         completedByUserId: isCompleting ? user.userId : (isReopening ? null : undefined),
       },

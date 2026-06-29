@@ -77,6 +77,33 @@ export class TasksService {
     });
   }
 
+  // Delete a task. Allowed for managers (Admin/Projektleiter) or the task's creator.
+  // Detaches the phase link and clears daily-aggregate rows first (both would otherwise block the delete);
+  // comments/history/checklists/documents cascade, and time entries are kept (taskId set to null).
+  async remove(id: string, user: any) {
+    const task = await this.prisma.task.findUnique({ where: { id }, select: { id: true, createdByUserId: true } });
+    if (!task) throw new NotFoundException('Aufgabe nicht gefunden');
+    if (!isManager(user?.role) && task.createdByUserId !== user?.userId) {
+      throw new ForbiddenException('Nur Manager oder der Ersteller dürfen diese Aufgabe löschen.');
+    }
+    await this.prisma.$transaction([
+      this.prisma.projectPhase.updateMany({ where: { linkedTaskId: id }, data: { linkedTaskId: null } }),
+      this.prisma.dailyTimeByTask.deleteMany({ where: { taskId: id } }),
+      this.prisma.task.delete({ where: { id } }),
+    ]);
+    return { deleted: true };
+  }
+
+  // Archive / unarchive a task (hide from the active board without deleting). Same rights as delete.
+  async setArchived(id: string, archived: boolean, user: any) {
+    const task = await this.prisma.task.findUnique({ where: { id }, select: { id: true, createdByUserId: true } });
+    if (!task) throw new NotFoundException('Aufgabe nicht gefunden');
+    if (!isManager(user?.role) && task.createdByUserId !== user?.userId) {
+      throw new ForbiddenException('Nur Manager oder der Ersteller dürfen diese Aufgabe archivieren.');
+    }
+    return this.prisma.task.update({ where: { id }, data: { archivedAt: archived ? new Date() : null } });
+  }
+
   async deleteDocument(docId: string, user: any) {
     const doc = await this.prisma.taskDocument.findUnique({ where: { id: docId } });
     if (!doc) throw new NotFoundException('Dokument nicht gefunden');
@@ -450,8 +477,10 @@ async addComment(taskId: string, text: string, user: any) {
     }
   }
 
-  async findAll(user?: any, assignedToMe = false, page = 1, pageSize = 50, search?: string): Promise<{ data: any[]; total: number; page: number; pageSize: number }> {
+  async findAll(user?: any, assignedToMe = false, page = 1, pageSize = 50, search?: string, includeArchived = false): Promise<{ data: any[]; total: number; page: number; pageSize: number }> {
     const where: any = {};
+    // Archived tasks are hidden from the active board unless explicitly requested.
+    if (!includeArchived) where.archivedAt = null;
     // Mitarbeiter/Extern/USER: only see own/assigned tasks; Admin/Projektleiter see all
     const isRestricted = user?.role && user.role !== 'ADMIN' && user.role !== 'PROJEKTLEITER';
     if ((assignedToMe || isRestricted) && user?.userId) {
