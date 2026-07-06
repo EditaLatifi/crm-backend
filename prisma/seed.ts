@@ -13,14 +13,17 @@ async function upsertByName(model: any, name: string, data: any) {
 
 async function main() {
 
-  // Rename English deal stages to German (for existing databases)
+  // Rename English deal stages to German (for existing databases). Pipeline was simplified by client
+  // request: "Qualifiziert" and "Verhandlung" removed → those map onto "Angebot".
   const stageRenames: Record<string, string> = {
     'New': 'Akquise',
     'Prospecting': 'Akquise',
     'Erstkontakt': 'Akquise',
-    'Qualified': 'Qualifiziert',
+    'Qualified': 'Angebot',
+    'Qualifiziert': 'Angebot',
     'Proposal': 'Angebot',
-    'Negotiation': 'Verhandlung',
+    'Negotiation': 'Angebot',
+    'Verhandlung': 'Angebot',
     'Won': 'Gewonnen',
     'Lost': 'Verloren',
   };
@@ -28,14 +31,12 @@ async function main() {
     await prisma.dealStage.updateMany({ where: { name: oldName }, data: { name: newName } });
   }
 
-  // Create default deal stages (German, per PDF spec)
+  // Default deal stages (simplified pipeline: no Qualifiziert / Verhandlung).
   const stages = [
     { name: 'Akquise', order: 1, isWon: false, isLost: false },
-    { name: 'Qualifiziert', order: 2, isWon: false, isLost: false },
-    { name: 'Angebot', order: 3, isWon: false, isLost: false },
-    { name: 'Verhandlung', order: 4, isWon: false, isLost: false },
-    { name: 'Gewonnen', order: 5, isWon: true, isLost: false },
-    { name: 'Verloren', order: 6, isWon: false, isLost: true },
+    { name: 'Angebot', order: 2, isWon: false, isLost: false },
+    { name: 'Gewonnen', order: 3, isWon: true, isLost: false },
+    { name: 'Verloren', order: 4, isWon: false, isLost: true },
   ];
   for (const s of stages) {
     await upsertByName(prisma.dealStage, s.name, { order: s.order, isWon: s.isWon, isLost: s.isLost });
