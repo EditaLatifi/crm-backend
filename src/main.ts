@@ -9,7 +9,6 @@ async function bootstrap() {
     // (comma-separated) without a code change.
     const defaultOrigins = [
       'http://localhost:3000',
-      'https://crm-frontend-xi-three.vercel.app',
       'https://ip3-crm.ch',
       'https://www.ip3-crm.ch',
     ];
